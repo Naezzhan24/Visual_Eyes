@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Surfaces -->
+    <color name="color_background">#FAF7F8</color>
+    <color name="color_surface">#FFFFFF</color>
+
+    <!-- Brand / maroon family -->
+    <color name="color_primary">#8C4356</color>
+    <color name="color_primary_dark">#6E3142</color>
+
+    <!-- Text -->
+    <color name="color_text_primary">#6E3142</color>
+    <color name="color_text_secondary">#7E6E73</color>
+    <color name="color_text_body">#2F2A2C</color>
+    <color name="color_text_on_primary">#FFFFFF</color>
+    <color name="color_text_on_primary_muted">#F6EDEF</color>
+
+    <!-- Dividers / subtle fills -->
+    <color name="color_divider">#E7D9DE</color>
+
+</resources>

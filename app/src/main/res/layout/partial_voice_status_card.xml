@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Shared "Voice Navigation Status" block, included by activity_home.xml,
+    activity_materials.xml, and activity_profile.xml.
+
+    IDs are unchanged (txtVoiceStatus / txtRecognizedText), so existing
+    findViewById calls in each Activity keep working exactly as before —
+    Android resolves included IDs against the parent layout normally.
+
+    The "available commands" hint line is intentionally left OUTSIDE this
+    partial and kept per-screen (see each activity_*.xml), since that text
+    differs screen to screen and is purely static — no code change needed
+    for it.
+-->
+<merge xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Voice Navigation Status"
+        android:textColor="@color/color_text_primary"
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/txtVoiceStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:background="@drawable/bg_voice_chip_soft"
+        android:paddingStart="14dp"
+        android:paddingTop="12dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="12dp"
+        android:text="Voice status: Initializing..."
+        android:textColor="@color/color_text_primary"
+        android:textSize="13sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/txtRecognizedText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:text="Recognized: Waiting for speech..."
+        android:textColor="@color/color_text_secondary"
+        android:textSize="13sp" />
+
+</merge>

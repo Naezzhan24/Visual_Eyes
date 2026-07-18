@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:fitsSystemWindows="true"
+    android:background="@drawable/bg_viewer_gradient_bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:background="@android:color/transparent">
+
+        <ImageView
+            android:id="@+id/btnBack"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:padding="9dp"
+            android:src="@android:drawable/ic_media_previous"
+            android:background="@drawable/bg_icon_button_ripple"
+            android:contentDescription="@string/back"
+            app:tint="#FFFFFF" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginStart="14dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Feedback"
+                android:textColor="#FFFFFF"
+                android:textSize="19sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="We value your voice"
+                android:textColor="#F2DDE3"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="18dp">
+
+            <!-- Rating card -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardRating"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:cardBackgroundColor="#33FFFFFF"
+                app:cardCornerRadius="24dp"
+                app:cardElevation="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="22dp">
+
+                    <ImageView
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:src="@android:drawable/btn_star_big_on"
+                        app:tint="#E0A93A"
+                        android:contentDescription="@null" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Rate your satisfaction"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="#FFFFFF"
+                        android:gravity="center" />
+
+                    <RatingBar
+                        android:id="@+id/ratingBarFeedback"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:numStars="5"
+                        android:stepSize="1"
+                        android:layout_marginTop="12dp" />
+
+                    <TextView
+                        android:id="@+id/txtRatingLabel"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Please select a rating"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:textColor="#F2DDE3"
+                        android:gravity="center"
+                        android:layout_marginTop="8dp" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Material feedback card -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardMaterial"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:cardBackgroundColor="#33FFFFFF"
+                app:cardCornerRadius="24dp"
+                app:cardElevation="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="20dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Material Feedback"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:textColor="#FFFFFF" />
+
+                    <android.widget.Button
+                        android:id="@+id/btnVoiceMaterial"
+                        android:layout_width="wrap_content"
+                        android:layout_height="46dp"
+                        android:layout_marginTop="12dp"
+                        android:text="Use Voice"
+                        android:textAllCaps="false"
+                        android:textSize="13sp"
+                        android:paddingStart="18dp"
+                        android:paddingEnd="18dp"
+                        android:minWidth="0dp"
+                        android:drawableStart="@android:drawable/ic_btn_speak_now"
+                        android:drawableTint="@color/color_primary"
+                        android:drawablePadding="8dp"
+                        android:background="@drawable/bg_pill_outline_ripple"
+                        android:backgroundTint="@null"
+                        android:textColor="@color/color_primary" />
+
+                    <EditText
+                        android:id="@+id/txtMaterialFeedback"
+                        android:layout_width="match_parent"
+                        android:layout_height="140dp"
+                        android:layout_marginTop="12dp"
+                        android:background="@drawable/bg_input_field"
+                        android:gravity="top"
+                        android:padding="16dp"
+                        android:hint="Enter your feedback about the learning material..."
+                        android:textColor="@color/color_text_body"
+                        android:textColorHint="#9E9E9E"
+                        android:textSize="14sp" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Instructor feedback card -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardInstructor"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="20dp"
+                app:cardBackgroundColor="#33FFFFFF"
+                app:cardCornerRadius="24dp"
+                app:cardElevation="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="20dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Instructor Feedback"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:textColor="#FFFFFF" />
+
+                    <android.widget.Button
+                        android:id="@+id/btnVoiceInstructor"
+                        android:layout_width="wrap_content"
+                        android:layout_height="46dp"
+                        android:layout_marginTop="12dp"
+                        android:text="Use Voice"
+                        android:textAllCaps="false"
+                        android:textSize="13sp"
+                        android:paddingStart="18dp"
+                        android:paddingEnd="18dp"
+                        android:minWidth="0dp"
+                        android:drawableStart="@android:drawable/ic_btn_speak_now"
+                        android:drawableTint="@color/color_primary"
+                        android:drawablePadding="8dp"
+                        android:background="@drawable/bg_pill_outline_ripple"
+                        android:backgroundTint="@null"
+                        android:textColor="@color/color_primary" />
+
+                    <EditText
+                        android:id="@+id/txtInstructorFeedback"
+                        android:layout_width="match_parent"
+                        android:layout_height="140dp"
+                        android:layout_marginTop="12dp"
+                        android:background="@drawable/bg_input_field"
+                        android:gravity="top"
+                        android:padding="16dp"
+                        android:hint="Enter your feedback for the instructor..."
+                        android:textColor="@color/color_text_body"
+                        android:textColorHint="#9E9E9E"
+                        android:textSize="14sp" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <android.widget.Button
+                android:id="@+id/btnSubmitFeedback"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:layout_marginBottom="24dp"
+                android:text="Submit Feedback"
+                android:textAllCaps="false"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:drawableStart="@android:drawable/ic_menu_send"
+                android:drawableTint="#FFFFFF"
+                android:drawablePadding="10dp"
+                android:background="@drawable/ripple_primary_button"
+                android:backgroundTint="@null"
+                android:textColor="#FFFFFF"
+                android:elevation="4dp" />
+
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>

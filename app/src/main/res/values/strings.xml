@@ -1,0 +1,23 @@
+<resources>
+    <string name="app_name">VisualED</string>
+    <string name="logo_desc">VisualED Logo</string>
+    <string name="login_title">ACCESSIBLE&#10;LEARNING SYSTEM</string>
+    <string name="hint_email">Email</string>
+    <string name="hint_password">Password</string>
+    <string name="login">Login</string>
+    <string name="voice_login">Voice Login</string>
+    <string name="voice_status_off">Voice Status: OFF</string>
+    <string name="register_prompt">Don\'t have an account? Register</string>
+    <string name="forgot_password">Forgot Password?</string>
+
+    <!-- Material Viewer Strings -->
+    <string name="viewer_icon_desc">Viewer Icon</string>
+    <string name="opening_learning_material">Opening Learning Material</string>
+    <string name="material_title_placeholder">Material Title</string>
+    <string name="material_preparing_message">Please wait while the learning material is being prepared.</string>
+
+    <!-- 🔥 ADDED (Back Button + Voice Status) -->
+    <string name="back">Back</string>
+    <string name="voice_waiting">Voice: waiting...</string>
+
+</resources>

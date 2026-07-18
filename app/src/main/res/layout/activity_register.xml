@@ -1,0 +1,315 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="@drawable/bg_viewer_gradient_bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <LinearLayout
+            android:id="@+id/registerCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_glass_card"
+            android:elevation="8dp"
+            android:padding="22dp">
+
+            <ImageView
+                android:id="@+id/logoImage"
+                android:layout_width="190dp"
+                android:layout_height="100dp"
+                android:layout_gravity="center"
+                android:adjustViewBounds="true"
+                android:scaleType="fitCenter"
+                android:contentDescription="@string/logo_desc"
+                android:src="@drawable/logo_visualed" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Student Registration"
+                android:textSize="22sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:layout_gravity="center"
+                android:layout_marginTop="10dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Create your account to access the VisualED learning support system"
+                android:textSize="14sp"
+                android:textColor="#F2DDE3"
+                android:textAlignment="center"
+                android:layout_gravity="center"
+                android:layout_marginTop="4dp" />
+
+            <!-- ── Personal Information ─────────────────────────────────────── -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Personal Information"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:layout_marginTop="22dp"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/fname"
+                android:layout_width="match_parent"
+                android:layout_height="54dp"
+                android:hint="First Name"
+                android:gravity="center_vertical"
+                android:textColor="#2B0B14"
+                android:textColorHint="#8A6F78"
+                android:cursorVisible="true"
+                android:background="@drawable/bg_input_maroon_soft"
+                android:drawableStart="@drawable/ic_profile"
+                android:drawableTint="@color/color_text_secondary"
+                android:drawablePadding="10dp"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:layout_marginBottom="12dp" />
+
+            <EditText
+                android:id="@+id/mname"
+                android:layout_width="match_parent"
+                android:layout_height="54dp"
+                android:hint="Middle Name"
+                android:gravity="center_vertical"
+                android:textColor="#2B0B14"
+                android:textColorHint="#8A6F78"
+                android:cursorVisible="true"
+                android:background="@drawable/bg_input_maroon_soft"
+                android:drawableStart="@drawable/ic_profile"
+                android:drawableTint="@color/color_text_secondary"
+                android:drawablePadding="10dp"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:layout_marginBottom="12dp" />
+
+            <EditText
+                android:id="@+id/lname"
+                android:layout_width="match_parent"
+                android:layout_height="54dp"
+                android:hint="Last Name"
+                android:gravity="center_vertical"
+                android:textColor="#2B0B14"
+                android:textColorHint="#8A6F78"
+                android:cursorVisible="true"
+                android:background="@drawable/bg_input_maroon_soft"
+                android:drawableStart="@drawable/ic_profile"
+                android:drawableTint="@color/color_text_secondary"
+                android:drawablePadding="10dp"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:layout_marginBottom="4dp" />
+
+            <!-- ── Academic Information ─────────────────────────────────────── -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Academic Information"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:layout_marginTop="18dp"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/age"
+                android:layout_width="match_parent"
+                android:layout_height="54dp"
+                android:hint="Age"
+                android:inputType="number"
+                android:gravity="center_vertical"
+                android:textColor="#2B0B14"
+                android:textColorHint="#8A6F78"
+                android:cursorVisible="true"
+                android:background="@drawable/bg_input_maroon_soft"
+                android:padding="16dp"
+                android:layout_marginBottom="12dp" />
+
+            <EditText
+                android:id="@+id/yearLevel"
+                android:layout_width="match_parent"
+                android:layout_height="54dp"
+                android:hint="Year Level (e.g. 1st Year)"
+                android:gravity="center_vertical"
+                android:textColor="#2B0B14"
+                android:textColorHint="#8A6F78"
+                android:cursorVisible="true"
+                android:background="@drawable/bg_input_maroon_soft"
+                android:padding="16dp"
+                android:layout_marginBottom="12dp" />
+
+            <EditText
+                android:id="@+id/schoolid"
+                android:layout_width="match_parent"
+                android:layout_height="54dp"
+                android:hint="School ID"
+                android:gravity="center_vertical"
+                android:textColor="#2B0B14"
+                android:textColorHint="#8A6F78"
+                android:cursorVisible="true"
+                android:background="@drawable/bg_input_maroon_soft"
+                android:padding="16dp"
+                android:layout_marginBottom="4dp" />
+
+            <!-- ── Account Details ──────────────────────────────────────────── -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Account Details"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:layout_marginTop="18dp"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/email"
+                android:layout_width="match_parent"
+                android:layout_height="54dp"
+                android:hint="School Email"
+                android:inputType="textEmailAddress"
+                android:gravity="center_vertical"
+                android:textColor="#2B0B14"
+                android:textColorHint="#8A6F78"
+                android:cursorVisible="true"
+                android:background="@drawable/bg_input_maroon_soft"
+                android:drawableStart="@drawable/ic_mail"
+                android:drawableTint="@color/color_text_secondary"
+                android:drawablePadding="10dp"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:layout_marginBottom="12dp" />
+
+            <RelativeLayout
+                android:layout_width="match_parent"
+                android:layout_height="54dp"
+                android:layout_marginBottom="12dp">
+
+                <EditText
+                    android:id="@+id/password"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:hint="Password"
+                    android:inputType="textPassword"
+                    android:gravity="center_vertical"
+                    android:textColor="#2B0B14"
+                    android:textColorHint="#8A6F78"
+                    android:cursorVisible="true"
+                    android:background="@drawable/bg_input_maroon_soft"
+                    android:drawableStart="@drawable/ic_lock"
+                    android:drawableTint="@color/color_text_secondary"
+                    android:drawablePadding="10dp"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="52dp" />
+
+                <ImageView
+                    android:id="@+id/togglePassword1"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:layout_marginEnd="2dp"
+                    android:padding="11dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="Toggle Password"
+                    android:src="@drawable/ic_eye_closed" />
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:layout_width="match_parent"
+                android:layout_height="54dp"
+                android:layout_marginBottom="4dp">
+
+                <EditText
+                    android:id="@+id/confirmPassword"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:hint="Confirm Password"
+                    android:inputType="textPassword"
+                    android:gravity="center_vertical"
+                    android:textColor="#2B0B14"
+                    android:textColorHint="#8A6F78"
+                    android:cursorVisible="true"
+                    android:background="@drawable/bg_input_maroon_soft"
+                    android:drawableStart="@drawable/ic_lock"
+                    android:drawableTint="@color/color_text_secondary"
+                    android:drawablePadding="10dp"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="52dp" />
+
+                <ImageView
+                    android:id="@+id/togglePassword2"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:layout_marginEnd="2dp"
+                    android:padding="11dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="Toggle Password"
+                    android:src="@drawable/ic_eye_closed" />
+            </RelativeLayout>
+
+            <!-- VOICE STATUS -->
+            <TextView
+                android:id="@+id/txtVoiceStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Voice status: Idle"
+                android:background="@drawable/bg_voice_chip_soft"
+                android:padding="14dp"
+                android:textColor="@color/color_text_primary"
+                android:textStyle="bold"
+                android:textSize="13sp"
+                android:gravity="center"
+                android:layout_marginTop="18dp"
+                android:layout_marginBottom="16dp" />
+
+            <!-- BUTTONS -->
+            <android.widget.Button
+                android:id="@+id/continueBtn"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:text="Continue"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold"
+                android:textSize="15sp"
+                android:background="@drawable/bg_btn_login_maroon"
+                android:backgroundTint="@null"
+                android:elevation="3dp"
+                android:layout_marginBottom="10dp" />
+
+            <android.widget.Button
+                android:id="@+id/voiceRegisterBtn"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:text="Voice Registration"
+                android:textAllCaps="false"
+                android:textColor="@color/color_primary"
+                android:textStyle="bold"
+                android:textSize="15sp"
+                android:background="@drawable/bg_btn_voice_soft"
+                android:backgroundTint="@null" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

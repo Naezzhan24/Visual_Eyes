@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- PERMISSIONS -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Storage: READ_MEDIA_IMAGES for API 33+, READ_EXTERNAL_STORAGE for API 32 and below -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <!-- Network state (needed to check connectivity before PDF fetch) -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
+        ── HYBRID SPEECH (Vosk + Whisper) ──
+        RECORD_AUDIO  → Vosk raw PCM capture + Android ASR fallback (already declared above)
+        INTERNET      → Whisper API (OpenAI) over HTTPS + Android ASR cloud (already declared above)
+        No extra permissions needed — all covered by the two above.
+    -->
+
+    <!-- Required for Speech Recognition + TTS + OkHttp HTTPS (Whisper API) -->
+    <queries>
+        <!-- Android ASR fallback -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <!-- TextToSpeech engine -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <!--
+            OkHttp HTTPS calls to OpenAI Whisper API.
+            Required on Android 11+ (API 30+) due to package visibility restrictions.
+            Without this, OkHttp HTTPS calls can silently fail on newer devices.
+        -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".VisualEyesApp"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:hardwareAccelerated="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="VisualED"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.VisualEyes"
+        android:usesCleartextTraffic="true"
+        tools:targetApi="31">
+
+        <!-- LOGIN = ENTRY POINT -->
+        <activity
+            android:name=".LoginActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- REGISTER FLOW -->
+        <activity
+            android:name=".RegisterActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="fontScale|screenSize|orientation|keyboardHidden"/>
+
+        <!-- PASSWORD RECOVERY -->
+        <activity
+            android:name=".ForgotPasswordActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ResetPasswordActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- TEXT SIZE TEST -->
+        <activity
+            android:name=".TextSizeTestActivity"
+            android:exported="false" />
+
+        <!-- Voice pipeline test-drive — see chat / SETUP_GUIDE.md in
+             Downloads/visualed-voice-pipeline. Not linked from any real
+             screen yet. TEMPORARILY exported="true" so `adb shell am start`
+             can launch them directly for testing — set back to false before
+             any real release. -->
+        <activity
+            android:name=".VoiceRegistrationTestActivity"
+            android:exported="true" />
+        <activity
+            android:name=".VoiceLoginTestActivity"
+            android:exported="true" />
+
+        <!-- MAIN APP -->
+        <activity
+            android:name=".HomeActivity"
+            android:exported="false" />
+        <activity
+            android:name=".MaterialsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".MaterialViewerActivity"
+            android:exported="false" />
+
+        <!--
+            AccessibleMaterialActivity:
+            - screenOrientation locked to portrait (avoids TTS/SpeechRecognizer restart on rotate)
+            - configChanges declared so activity is NOT recreated on font scale change
+        -->
+        <activity
+            android:name=".AccessibleMaterialActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:configChanges="fontScale|uiMode" />
+
+        <activity
+            android:name=".ProfileActivity"
+            android:exported="false" />
+
+        <!-- FEEDBACK SYSTEM -->
+        <activity
+            android:name=".FeedbackActivity"
+            android:exported="false" />
+
+    </application>
+
+</manifest>
