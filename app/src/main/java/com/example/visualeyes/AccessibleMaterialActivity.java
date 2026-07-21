@@ -3,6 +3,7 @@ package com.example.visualeyes;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
@@ -12,7 +13,6 @@ import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
-import android.text.Layout;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
@@ -20,10 +20,13 @@ import android.text.style.RelativeSizeSpan;
 import android.text.style.StyleSpan;
 import android.util.Log;
 import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.MotionEvent;
+import android.view.View;
 import android.view.animation.AnimationUtils;
 import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -47,8 +50,10 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -60,9 +65,14 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
 
     private TextView txtVoiceStatus, txtReaderTitle, txtReaderInfo, txtReaderContent, txtCurrentSize;
     private ScrollView scrollView;
+    private LinearLayout contentContainer;
     private ImageView btnBack;
     private Button btnDecreaseText, btnIncreaseText;
     private SeekBar seekTextSize;
+
+    private final List<TextView> bodyTextViews    = new ArrayList<>();
+    private final List<TextView> captionTextViews = new ArrayList<>();
+    private final List<View>     blockViews       = new ArrayList<>();
 
     private String materialId    = "";
     private String fileUrl       = "";
@@ -79,7 +89,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private static final long VOSK_LISTEN_TIMEOUT_MS = 6000L;
 
     private final Handler       handler       = new Handler(Looper.getMainLooper());
-    private       ArrayList<String> chunks    = new ArrayList<>();
+    private       ArrayList<ReaderBlock> chunks = new ArrayList<>();
     private       int           currentChunkIndex = 0;
 
     private boolean ttsReady       = false;
@@ -111,6 +121,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         txtReaderContent= findViewById(R.id.txtReaderContent);
         txtCurrentSize  = findViewById(R.id.txtCurrentSize);
         scrollView      = findViewById(R.id.scrollView);
+        contentContainer= findViewById(R.id.contentContainer);
         btnBack         = findViewById(R.id.btnBack);
         btnDecreaseText = findViewById(R.id.btnDecreaseText);
         btnIncreaseText = findViewById(R.id.btnIncreaseText);
@@ -134,6 +145,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         txtReaderTitle.setText(title);
         txtReaderContent.setText(content);
         txtReaderContent.setLineSpacing(10f, 1.2f);
+        bodyTextViews.add(txtReaderContent);
         setVoiceStatus("Voice: initializing...");
 
         setupTextSizeControls();
@@ -224,9 +236,13 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
 
                 final String finalText = cleanText(extracted);
 
-                final CharSequence styledText = finalText.trim().isEmpty()
-                        ? finalText
-                        : buildStyledContent(finalText, extractStyleRuns(document));
+                final List<String> textChunks = finalText.trim().isEmpty()
+                        ? new ArrayList<>()
+                        : splitIntoSmartChunks(finalText);
+
+                final List<ReaderBlock> readerBlocks = textChunks.isEmpty()
+                        ? new ArrayList<>()
+                        : buildReaderBlocks(document, textChunks, extractStyleRuns(document));
 
                 final PDDocument docToClose = document;
                 document = null;
@@ -240,17 +256,17 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
                         content = "No readable text found in this PDF.\n\n"
                                 + "The file may be scanned or image-based.\n"
                                 + "Please ask your teacher for a text-based version.";
-                        UiAnim.crossfadeText(txtReaderContent, content);
+                        renderPlainMessage(content);
                         setVoiceStatus("No readable content");
                         speakNow("No readable content available in this PDF.", "STOP_MSG");
                     } else {
                         materialLoaded  = true;
                         content         = finalText;
-                        chunks          = splitIntoSmartChunks(content);
+                        chunks          = new ArrayList<>(readerBlocks);
                         currentChunkIndex = 0;
 
                         txtReaderTitle.setText(title);
-                        UiAnim.crossfadeText(txtReaderContent, styledText);
+                        renderReaderBlocks(chunks);
                         applyTextSize(recommendedTextSize, false);
 
                         setVoiceStatus("Loaded — " + chunks.size() + " sections");
@@ -342,11 +358,14 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     }
 
     private static class StyleRun {
-        final String text;
+        final String  text;
         final boolean bold;
-        final float fontSize;
-        StyleRun(String text, boolean bold, float fontSize) {
+        final float   fontSize;
+        final float   yTop;
+        final int     pageNo;
+        StyleRun(String text, boolean bold, float fontSize, float yTop, int pageNo) {
             this.text = text; this.bold = bold; this.fontSize = fontSize;
+            this.yTop = yTop; this.pageNo = pageNo;
         }
     }
 
@@ -363,7 +382,8 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
                                 ? font.getName().toLowerCase(Locale.US) : "";
                         boolean bold = fontName.contains("bold") || fontName.contains("black")
                                 || fontName.contains("heavy") || fontName.contains("semibold");
-                        runs.add(new StyleRun(string, bold, first.getFontSizeInPt()));
+                        runs.add(new StyleRun(string, bold, first.getFontSizeInPt(),
+                                first.getYDirAdj(), getCurrentPageNo()));
                     }
                     super.writeString(string, textPositions);
                 }
@@ -376,25 +396,36 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         return runs;
     }
 
-    private CharSequence buildStyledContent(String plainText, List<StyleRun> runs) {
-        if (plainText == null || plainText.isEmpty() || runs.isEmpty()) return plainText;
-
+    private float computeHeadingThreshold(List<StyleRun> runs) {
         List<Float> sizes = new ArrayList<>();
         for (StyleRun r : runs) if (r.fontSize > 0) sizes.add(r.fontSize);
-        if (sizes.isEmpty()) return plainText;
+        if (sizes.isEmpty()) return Float.MAX_VALUE;
         Collections.sort(sizes);
         float bodySize = sizes.get(sizes.size() / 2);
-        float headingThreshold = bodySize * 1.2f;
+        return bodySize * 1.2f;
+    }
 
-        SpannableString spannable = new SpannableString(plainText);
+    /**
+     * Applies bold/heading spans to a single chunk of text, consuming style runs
+     * from {@code runs} starting at {@code runIndexHolder[0]}. Runs that don't match
+     * within this chunk are left for the next chunk (chunks are processed in order,
+     * mirroring the document's reading order).
+     */
+    private CharSequence styleChunkText(String chunkText, List<StyleRun> runs, int[] runIndexHolder,
+                                         float headingThreshold) {
+        if (chunkText == null || chunkText.isEmpty() || runs.isEmpty()) return chunkText;
+
+        SpannableString spannable = new SpannableString(chunkText);
         int cursor = 0;
+        boolean matchedAny = false;
 
-        for (StyleRun run : runs) {
+        while (runIndexHolder[0] < runs.size()) {
+            StyleRun run = runs.get(runIndexHolder[0]);
             String needle = run.text;
-            if (needle == null || needle.trim().isEmpty()) continue;
+            if (needle == null || needle.trim().isEmpty()) { runIndexHolder[0]++; continue; }
 
-            int start = plainText.indexOf(needle, cursor);
-            if (start < 0) continue;
+            int start = chunkText.indexOf(needle, cursor);
+            if (start < 0) break;
             int end = start + needle.length();
 
             boolean isHeading = run.fontSize >= headingThreshold;
@@ -406,9 +437,246 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
                 spannable.setSpan(new ForegroundColorSpan(0xFF6E3142), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }
             cursor = end;
+            matchedAny = true;
+            runIndexHolder[0]++;
         }
 
-        return spannable;
+        return matchedAny ? spannable : chunkText;
+    }
+
+    private static class ReaderBlock {
+        enum Type { TEXT, IMAGE }
+        final Type type;
+        CharSequence text;
+        Bitmap image;
+        String caption;
+
+        private ReaderBlock(Type type) { this.type = type; }
+
+        static ReaderBlock text(CharSequence text) {
+            ReaderBlock b = new ReaderBlock(Type.TEXT);
+            b.text = text;
+            return b;
+        }
+        static ReaderBlock image(Bitmap image, String caption) {
+            ReaderBlock b = new ReaderBlock(Type.IMAGE);
+            b.image   = image;
+            b.caption = caption;
+            return b;
+        }
+    }
+
+    private static class ImageWithCaption {
+        final Bitmap bitmap;
+        String caption;
+        ImageWithCaption(Bitmap bitmap, String caption) {
+            this.bitmap = bitmap; this.caption = caption;
+        }
+    }
+
+    private static final float CAPTION_MAX_GAP_PT      = 40f;
+    private static final float CAPTION_CONTINUE_GAP_PT = 20f;
+    private static final int   CAPTION_MAX_CHARS       = 400;
+
+    /**
+     * Finds the text immediately below an image on the same page (within a small
+     * gap) and treats it as that image's caption/description — the description is
+     * printed directly under the picture inside the PDF itself, there is no
+     * separate metadata field for it.
+     */
+    private String findCaption(PdfPageImageExtractor.ExtractedImage img, List<StyleRun> pageRunsSortedByY) {
+        StringBuilder caption = new StringBuilder();
+        float lastY = img.bottomY;
+        boolean started = false;
+
+        for (StyleRun run : pageRunsSortedByY) {
+            if (run.yTop < img.bottomY - 1f) continue;
+            float gap = run.yTop - lastY;
+            if (!started) {
+                if (gap > CAPTION_MAX_GAP_PT) break;
+                started = true;
+            } else if (gap > CAPTION_CONTINUE_GAP_PT) {
+                break;
+            }
+            if (caption.length() > 0) caption.append(' ');
+            caption.append(run.text.trim());
+            lastY = run.yTop;
+            if (caption.length() >= CAPTION_MAX_CHARS) break;
+        }
+        return caption.length() > 0 ? caption.toString() : null;
+    }
+
+    private String normalizeForMatch(String s) {
+        if (s == null) return "";
+        return s.toLowerCase(Locale.US).replaceAll("\\s+", " ").trim();
+    }
+
+    private String captionSnippet(String caption) {
+        String norm = normalizeForMatch(caption);
+        String[] words = norm.split(" ");
+        StringBuilder sb = new StringBuilder();
+        int n = Math.min(10, words.length);
+        for (int i = 0; i < n; i++) {
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(words[i]);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Merges extracted images into the paragraph chunk list, matching each image
+     * to the chunk that contains its caption (found via {@link #findCaption}) so the
+     * caption is displayed once, directly under the image, instead of also being
+     * read as a separate floating paragraph.
+     */
+    private List<ReaderBlock> buildReaderBlocks(PDDocument document, List<String> chunks, List<StyleRun> runs) {
+        List<ReaderBlock> blocks = new ArrayList<>();
+
+        Map<Integer, List<PdfPageImageExtractor.ExtractedImage>> imagesByPage = new HashMap<>();
+        try {
+            int pageCount = document.getNumberOfPages();
+            for (int i = 0; i < pageCount; i++) {
+                List<PdfPageImageExtractor.ExtractedImage> pageImages =
+                        new PdfPageImageExtractor(document.getPage(i)).extract();
+                if (!pageImages.isEmpty()) imagesByPage.put(i + 1, pageImages);
+            }
+        } catch (Exception e) {
+            Log.e("PDF_IMAGES", "Image extraction failed: " + e.getMessage());
+        }
+
+        float headingThreshold = computeHeadingThreshold(runs);
+
+        if (imagesByPage.isEmpty()) {
+            int[] runIndex = {0};
+            for (String chunk : chunks) {
+                blocks.add(ReaderBlock.text(styleChunkText(chunk, runs, runIndex, headingThreshold)));
+            }
+            return blocks;
+        }
+
+        List<ImageWithCaption> pending = new ArrayList<>();
+        for (Map.Entry<Integer, List<PdfPageImageExtractor.ExtractedImage>> entry : imagesByPage.entrySet()) {
+            int pageNo = entry.getKey();
+            List<StyleRun> pageRuns = new ArrayList<>();
+            for (StyleRun r : runs) if (r.pageNo == pageNo) pageRuns.add(r);
+            Collections.sort(pageRuns, (a, b) -> Float.compare(a.yTop, b.yTop));
+
+            for (PdfPageImageExtractor.ExtractedImage img : entry.getValue()) {
+                pending.add(new ImageWithCaption(img.bitmap, findCaption(img, pageRuns)));
+            }
+        }
+
+        boolean[] consumed = new boolean[chunks.size()];
+        Map<Integer, List<ImageWithCaption>> insertBefore = new HashMap<>();
+        List<ImageWithCaption> unmatched = new ArrayList<>();
+
+        for (ImageWithCaption iwc : pending) {
+            int matchIndex = -1;
+            if (iwc.caption != null && !iwc.caption.trim().isEmpty()) {
+                String snippet = captionSnippet(iwc.caption);
+                for (int j = 0; j < chunks.size(); j++) {
+                    if (consumed[j]) continue;
+                    if (!snippet.isEmpty() && normalizeForMatch(chunks.get(j)).contains(snippet)) {
+                        matchIndex = j;
+                        break;
+                    }
+                }
+            }
+            if (matchIndex >= 0) {
+                consumed[matchIndex] = true;
+                iwc.caption = chunks.get(matchIndex).trim();
+                insertBefore.computeIfAbsent(matchIndex, k -> new ArrayList<>()).add(iwc);
+            } else {
+                unmatched.add(iwc);
+            }
+        }
+
+        int[] runIndex = {0};
+        for (int j = 0; j < chunks.size(); j++) {
+            List<ImageWithCaption> before = insertBefore.get(j);
+            if (before != null) {
+                for (ImageWithCaption iwc : before) blocks.add(ReaderBlock.image(iwc.bitmap, iwc.caption));
+            }
+            CharSequence styled = styleChunkText(chunks.get(j), runs, runIndex, headingThreshold);
+            if (!consumed[j]) {
+                blocks.add(ReaderBlock.text(styled));
+            }
+        }
+        for (ImageWithCaption iwc : unmatched) blocks.add(ReaderBlock.image(iwc.bitmap, iwc.caption));
+
+        return blocks;
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private void renderPlainMessage(String text) {
+        contentContainer.removeAllViews();
+        blockViews.clear();
+        bodyTextViews.clear();
+        captionTextViews.clear();
+
+        txtReaderContent.setVisibility(View.VISIBLE);
+        txtReaderContent.setText(text);
+        contentContainer.addView(txtReaderContent);
+        bodyTextViews.add(txtReaderContent);
+    }
+
+    private void renderReaderBlocks(List<ReaderBlock> blocks) {
+        contentContainer.removeAllViews();
+        blockViews.clear();
+        bodyTextViews.clear();
+        captionTextViews.clear();
+
+        for (ReaderBlock block : blocks) {
+            if (block.type == ReaderBlock.Type.TEXT) {
+                TextView tv = new TextView(this);
+                tv.setTextColor(0xFF2F2A2C);
+                tv.setLineSpacing(10f, 1.2f);
+                tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, recommendedTextSize);
+                tv.setText(block.text);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                lp.bottomMargin = dp(12);
+                tv.setLayoutParams(lp);
+
+                contentContainer.addView(tv);
+                bodyTextViews.add(tv);
+                blockViews.add(tv);
+            } else {
+                ImageView iv = new ImageView(this);
+                iv.setImageBitmap(block.image);
+                iv.setAdjustViewBounds(true);
+                iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                iv.setMaxHeight(dp(260));
+                iv.setContentDescription(block.caption != null ? block.caption : "Image");
+                LinearLayout.LayoutParams ivLp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                ivLp.topMargin = dp(6);
+                iv.setLayoutParams(ivLp);
+
+                contentContainer.addView(iv);
+                blockViews.add(iv);
+
+                if (block.caption != null && !block.caption.trim().isEmpty()) {
+                    TextView caption = new TextView(this);
+                    caption.setText(block.caption);
+                    caption.setTypeface(caption.getTypeface(), Typeface.ITALIC);
+                    caption.setGravity(Gravity.CENTER);
+                    caption.setTextColor(0xFF6E3142);
+                    caption.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(12, recommendedTextSize - 6));
+                    LinearLayout.LayoutParams capLp = new LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                    capLp.topMargin    = dp(6);
+                    capLp.bottomMargin = dp(14);
+                    caption.setLayoutParams(capLp);
+
+                    contentContainer.addView(caption);
+                    captionTextViews.add(caption);
+                }
+            }
+        }
     }
 
     @Override
@@ -753,7 +1021,6 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
             return;
         }
 
-        chunks = splitIntoSmartChunks(content);
         if (chunks.isEmpty()) {
             speakNow("No readable content available.", "STOP_MSG");
             return;
@@ -777,14 +1044,22 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
             return;
         }
 
-        String chunk = chunks.get(currentChunkIndex);
-        scrollToChunk(chunk);
+        ReaderBlock block = chunks.get(currentChunkIndex);
+        scrollToChunk(currentChunkIndex);
         stopListeningSafe();
+
+        String spoken;
+        if (block.type == ReaderBlock.Type.TEXT) {
+            spoken = block.text != null ? block.text.toString() : "";
+        } else {
+            spoken = "Image. " + (block.caption != null && !block.caption.trim().isEmpty()
+                    ? block.caption : "No description available.");
+        }
 
         if (tts != null) {
             tts.stop();
             tts.setSpeechRate(speechRate);
-            tts.speak(chunk, TextToSpeech.QUEUE_FLUSH, null, "CHUNK");
+            tts.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "CHUNK");
         }
 
         currentChunkIndex++;
@@ -812,16 +1087,13 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         return result;
     }
 
-    private void scrollToChunk(String chunk) {
-        if (txtReaderContent == null || scrollView == null || chunk == null) return;
-        int position = content.indexOf(chunk);
-        if (position < 0) return;
+    private void scrollToChunk(int index) {
+        if (scrollView == null || index < 0 || index >= blockViews.size()) return;
+        View target = blockViews.get(index);
+        if (target == null) return;
 
         scrollView.post(() -> {
-            Layout layout = txtReaderContent.getLayout();
-            if (layout == null) return;
-            int line   = layout.getLineForOffset(Math.min(position, content.length() - 1));
-            int scrollY= Math.max(0, layout.getLineTop(line) - 120);
+            int scrollY = Math.max(0, target.getTop() - 120);
             scrollView.smoothScrollTo(0, scrollY);
         });
     }
@@ -885,8 +1157,9 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         size = Math.max(MIN_TEXT_SIZE, Math.min(MAX_TEXT_SIZE, size));
         recommendedTextSize = size;
 
-        if (txtReaderContent != null)
-            txtReaderContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, size);
+        for (TextView tv : bodyTextViews) tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, size);
+        for (TextView tv : captionTextViews) tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(12, size - 6));
+
         if (txtReaderTitle != null)
             txtReaderTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, size + 2);
         if (txtReaderInfo != null) {
