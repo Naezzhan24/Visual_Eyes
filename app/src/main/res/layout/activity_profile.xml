@@ -388,6 +388,35 @@
                             android:text="" />
                     </LinearLayout>
 
+                    <LinearLayout
+                        android:id="@+id/optionHelp"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:background="@drawable/bg_option_item_light"
+                        android:gravity="center_vertical"
+                        android:minHeight="58dp"
+                        android:orientation="horizontal"
+                        android:padding="14dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:importantForAccessibility="no"
+                            android:text="Help &amp; User Guide"
+                            android:textColor="@color/color_text_primary"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:src="@android:drawable/ic_menu_info_details"
+                            app:tint="@color/color_text_primary"
+                            android:contentDescription="Open Help" />
+                    </LinearLayout>
+
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 

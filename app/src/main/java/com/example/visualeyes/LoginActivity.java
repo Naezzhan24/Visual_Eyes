@@ -105,10 +105,9 @@ public class LoginActivity extends AppCompatActivity {
 
     private static final long PROMPT_RETRY_DELAY  = 1600L;
 
-    private long recordTimeoutForMode(String mode) {
-        return "password".equals(mode) ? 4000L : 3200L;
-    }
     private static final long ANDROID_ASR_TIMEOUT = 8500L;
+    private static final long CLOUD_STT_SAFETY_TIMEOUT_MS = 11000L;
+    private String pendingSttMode = "command";
 
     private static final float VOICE_SPEAKING_RATE = 1.15f;
 
@@ -120,12 +119,29 @@ public class LoginActivity extends AppCompatActivity {
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
                 if (isGranted) {
                     setVoiceStatus("Microphone enabled.");
-                    handler.postDelayed(this::startVoiceLogin, 800);
+                    MicReadiness.awaitReady(handler, this::startVoiceLogin);
                 } else {
                     setVoiceStatus("Microphone permission denied.");
                     Toast.makeText(this, "Microphone permission required.", Toast.LENGTH_SHORT).show();
                 }
             });
+
+    private void requestMicPermissionWithRationale() {
+        setVoiceStatus("Requesting microphone access...");
+        lastSpokenInstruction = "I need access to your microphone for voice login. " +
+                "A system permission dialog will appear next — please allow it.";
+        say(lastSpokenInstruction, () -> {
+            MicPermissionHelper.markRequested(this);
+            requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO);
+        });
+    }
+
+    private void explainPermanentDenialAndOpenSettings() {
+        setVoiceStatus("Microphone permission blocked.");
+        lastSpokenInstruction = "Microphone access was previously denied and can't be requested again here. " +
+                "Opening app settings so you can enable it under Permissions.";
+        say(lastSpokenInstruction, () -> MicPermissionHelper.openAppSettings(this));
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -183,9 +199,20 @@ public class LoginActivity extends AppCompatActivity {
             if (hasAudioPermission()) {
                 lastSpokenInstruction = tips + " You'll hear a short beep each time it's your turn to speak.";
                 say(lastSpokenInstruction, this::promptEntryChoice);
+            } else if (MicPermissionHelper.isPermanentlyDenied(this)) {
+                lastSpokenInstruction = tips + " Microphone access is currently blocked in settings. " +
+                        "You can log in manually, or open Settings anytime to enable voice login.";
+                say(lastSpokenInstruction, null);
+            } else if (!MicPermissionHelper.isScreenReaderActive(this)) {
+                lastSpokenInstruction = tips + " I'll need microphone access for voice login — " +
+                        "a permission dialog will appear next, please allow it.";
+                say(lastSpokenInstruction, () -> {
+                    MicPermissionHelper.markRequested(this);
+                    requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO);
+                });
             } else {
                 lastSpokenInstruction = tips + " You can log in manually, or tap Register if you " +
-                        "don't have an account yet. Enable microphone access anytime to use voice login.";
+                        "don't have an account yet. Enable microphone access anytime by tapping Voice Login.";
                 say(lastSpokenInstruction, null);
             }
         }, 800);
@@ -236,8 +263,10 @@ public class LoginActivity extends AppCompatActivity {
             isAwaitingEntryChoice = false;
             if (hasAudioPermission()) {
                 startVoiceLogin();
+            } else if (MicPermissionHelper.isPermanentlyDenied(this)) {
+                explainPermanentDenialAndOpenSettings();
             } else {
-                requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO);
+                requestMicPermissionWithRationale();
             }
         });
 
@@ -385,6 +414,28 @@ public class LoginActivity extends AppCompatActivity {
         say(lastSpokenInstruction, this::promptCurrentStep);
     }
 
+    private void startVoiceLoginWithRememberedEmail(String rememberedEmail) {
+        isVoiceLoginMode  = true;
+        isAwaitingEntryChoice = false;
+        voiceRetryCount   = 0;
+        latestPartialText = "";
+        emailUsername     = "";
+        emailProvider     = "";
+        emailExtension    = "";
+        currentStep       = VoiceStep.PASSWORD;
+
+        emailInput.setText(rememberedEmail);
+        emailInput.setSelection(rememberedEmail.length());
+        passwordInput.setText("");
+
+        setVoiceStatus("Voice login started.");
+        pulseVoiceStatus();
+
+        lastSpokenInstruction = "Welcome back. Using " + rememberedEmail + " as your email. " +
+                "You'll hear a short beep before it's your turn to speak. Please say your password now.";
+        say(lastSpokenInstruction, this::promptCurrentStep);
+    }
+
     private void promptCurrentStep() {
         if (!isVoiceLoginMode) return;
         stopListeningSafely();
@@ -441,11 +492,59 @@ public class LoginActivity extends AppCompatActivity {
     private void startGoogleListening(String mode) {
         if (!isVoiceInteractionActive() || isFinishing() || isDestroyed()) return;
 
-        if (!NetworkUtils.hasInternet(this)) {
-            Log.e("Login_STT", "No internet detected — skipping Cloud STT, using on-device recognizer.");
-            startAndroidListening();
+        pendingSttMode = mode;
+
+        if (SpeechEngineHealth.isBuiltInRecognizerBroken(this)) {
+            cascadeFromBuiltIn(mode);
             return;
         }
+
+        if (speechRecognizer == null) buildAndAttachRecognizer();
+        if (speechRecognizer == null) {
+            Log.e("Login_STT", "Built-in recognizer unavailable on this device — using Cloud STT.");
+            SpeechEngineHealth.markBuiltInRecognizerBroken(this);
+            cascadeFromBuiltIn(mode);
+            return;
+        }
+
+        stopListeningSafely();
+        latestPartialText = "";
+        setVoiceStatus("Get ready...");
+
+        AudioCue.playThen(handler, () -> {
+            if (!isVoiceInteractionActive() || isFinishing() || isDestroyed()) return;
+
+            try {
+                setVoiceStatus("Listening...");
+                speechRecognizer.startListening(speechIntent);
+                isListening = true;
+
+                handler.postDelayed(() -> {
+                    if (isListening) {
+                        isListening = false;
+                        try {
+                            if (speechRecognizer != null) speechRecognizer.stopListening();
+                        } catch (Exception ignored) {}
+                    }
+                }, ANDROID_ASR_TIMEOUT);
+
+            } catch (Exception e) {
+                isListening = false;
+                cascadeFromBuiltIn(mode);
+            }
+        });
+    }
+
+    private void cascadeFromBuiltIn(String mode) {
+        if (NetworkUtils.hasInternet(this)) {
+            startCloudSttListening(mode);
+        } else {
+            startVoskListening();
+        }
+    }
+
+    private void startCloudSttListening(String mode) {
+        if (!isVoiceInteractionActive() || isFinishing() || isDestroyed()) return;
 
         setVoiceStatus("Get ready...");
 
@@ -454,45 +553,42 @@ public class LoginActivity extends AppCompatActivity {
 
             setVoiceStatus("Listening...");
             isListening = true;
-            googleStt.startRecording();
 
-            handler.removeCallbacksAndMessages("stt_stop");
+            final boolean[] stopTriggered = {false};
+            Runnable stopAndTranscribe = () -> {
+                if (stopTriggered[0] || !isListening) return;
+                stopTriggered[0] = true;
+                isListening = false;
+                setVoiceStatus("Processing...");
+                googleStt.stopAndRecognize(mode, new GoogleSttManager.SttCallback() {
+                    @Override
+                    public void onResult(String transcript) {
+                        setVoiceStatus("Heard: " + transcript);
+                        handleVoiceResult(transcript);
+                    }
 
-            Runnable stopRunnable = () -> {
-                if (isListening && isVoiceInteractionActive()) {
-                    isListening = false;
-                    setVoiceStatus("Processing...");
-                    googleStt.stopAndRecognize(mode, new GoogleSttManager.SttCallback() {
-                        @Override
-                        public void onResult(String transcript) {
-                            setVoiceStatus("Heard: " + transcript);
-                            handleVoiceResult(transcript);
-                        }
-
-                        @Override
-                        public void onError(String message) {
-
-                            setVoiceStatus("Switching to fallback...");
-                            startAndroidListening();
-                        }
-                    });
-                }
+                    @Override
+                    public void onError(String message) {
+                        Log.e("Login_STT", "Cloud STT failed (" + message + "), falling back to Vosk.");
+                        startVoskListening();
+                    }
+                });
             };
 
-            handler.postDelayed(stopRunnable, recordTimeoutForMode(mode));
+            googleStt.startRecording(stopAndTranscribe::run);
+            handler.postDelayed(stopAndTranscribe, CLOUD_STT_SAFETY_TIMEOUT_MS);
         });
-    }
-
-    private void startAndroidListening() {
-        if (hybridSpeech != null && hybridSpeech.isReady()) {
-            startVoskListening();
-        } else {
-            startRawAndroidListening();
-        }
     }
 
     private void startVoskListening() {
         if (!isVoiceInteractionActive() || isFinishing() || isDestroyed()) return;
+
+        if (hybridSpeech == null || !hybridSpeech.isReady()) {
+            Log.e("Login_STT", "Vosk not ready — all engines exhausted, retrying from the top.");
+            if (isAwaitingEntryChoice) retryEntryChoice();
+            else retryOrStop("I did not catch that.");
+            return;
+        }
 
         stopListeningSafely();
         latestPartialText = "";
@@ -522,9 +618,10 @@ public class LoginActivity extends AppCompatActivity {
 
                 @Override public void onError(String message) {
                     isListening = false;
-                    Log.e("Login_STT", "Vosk fallback failed (" + message + "), using raw SpeechRecognizer.");
+                    Log.e("Login_STT", "Vosk failed (" + message + ") — all engines exhausted, retrying from the top.");
                     if (!isVoiceInteractionActive()) return;
-                    startRawAndroidListening();
+                    if (isAwaitingEntryChoice) retryEntryChoice();
+                    else retryOrStop("I did not catch that.");
                 }
             }, useWhisper, currentFieldDescriptionForVosk());
 
@@ -546,46 +643,6 @@ public class LoginActivity extends AppCompatActivity {
             case PASSWORD:          return "password";
             default:                return null;
         }
-    }
-
-    private void startRawAndroidListening() {
-        if (speechRecognizer == null) buildAndAttachRecognizer();
-        stopListeningSafely();
-        latestPartialText = "";
-        setVoiceStatus("Get ready...");
-
-        AudioCue.playThen(handler, () -> {
-            if (!isVoiceInteractionActive() || isFinishing() || isDestroyed()) return;
-
-            try {
-                setVoiceStatus("Listening (device fallback)...");
-                speechRecognizer.startListening(speechIntent);
-                isListening = true;
-
-                handler.postDelayed(() -> {
-                    if (isListening) {
-                        isListening = false;
-                        try {
-                            if (speechRecognizer != null) speechRecognizer.stopListening();
-                        } catch (Exception ignored) {}
-
-                    }
-                }, ANDROID_ASR_TIMEOUT);
-
-            } catch (Exception e) {
-                isListening = false;
-                if (isAwaitingEntryChoice) {
-                    retryEntryChoice();
-                    return;
-                }
-                voiceRetryCount++;
-                if (voiceRetryCount <= MAX_VOICE_RETRY) {
-                    handler.postDelayed(this::promptCurrentStep, 900);
-                } else {
-                    abortVoiceLogin("I could not hear you. Please use manual login.");
-                }
-            }
-        });
     }
 
     private void handleVoiceResult(String spokenText) {
@@ -614,10 +671,13 @@ public class LoginActivity extends AppCompatActivity {
                 isAwaitingEntryChoice = false;
                 entryChoiceRetryCount = 0;
                 stopListeningSafely();
-                setVoiceStatus("Ready.");
-                lastSpokenInstruction = "Great. You can now say your username to log in by voice, " +
-                        "or use the manual fields. Triple tap the screen anytime to hear instructions again.";
-                say(lastSpokenInstruction, null);
+
+                String rememberedEmail = authManager.getRememberedEmail();
+                if (!rememberedEmail.isEmpty()) {
+                    startVoiceLoginWithRememberedEmail(rememberedEmail);
+                } else {
+                    startVoiceLogin();
+                }
             } else {
                 retryEntryChoice();
             }
@@ -625,7 +685,7 @@ public class LoginActivity extends AppCompatActivity {
         }
 
         if (spokenText == null || spokenText.trim().isEmpty()) {
-            retryOrStop("I did not catch that. Please try again.");
+            retryOrStop("I did not catch that.");
             return;
         }
 
@@ -766,7 +826,8 @@ public class LoginActivity extends AppCompatActivity {
         voiceRetryCount++;
         if (voiceRetryCount <= MAX_VOICE_RETRY) {
             setVoiceStatus(message);
-            lastSpokenInstruction = message + " Please try again.";
+            lastSpokenInstruction = message + " Please move closer to the microphone " +
+                    "or speak a little louder, and try again.";
             say(lastSpokenInstruction, () ->
                     handler.postDelayed(this::promptCurrentStep, PROMPT_RETRY_DELAY));
         } else {
@@ -828,16 +889,19 @@ public class LoginActivity extends AppCompatActivity {
                     speechRecognizer = null;
                     handler.postDelayed(() -> {
                         buildAndAttachRecognizer();
-                        startRawAndroidListening();
+                        startGoogleListening(pendingSttMode);
                     }, 800);
                     return;
                 }
 
-                if (isAwaitingEntryChoice) {
-                    retryEntryChoice();
-                    return;
+                Log.e("Login_STT", "Built-in recognizer onError code=" + error);
+                if (SpeechEngineHealth.isRecognizerIncompatible(error)) {
+                    Log.e("Login_STT", "Built-in recognizer is not usable on this device — "
+                            + "skipping it from now on.");
+                    SpeechEngineHealth.markBuiltInRecognizerBroken(LoginActivity.this);
                 }
-                retryOrStop("I did not catch that.");
+
+                cascadeFromBuiltIn(pendingSttMode);
             }
 
             @Override
@@ -849,8 +913,7 @@ public class LoginActivity extends AppCompatActivity {
                 String best = getBestResult(matches);
                 if (!best.isEmpty()) handleVoiceResult(best);
                 else if (!latestPartialText.trim().isEmpty()) handleVoiceResult(latestPartialText);
-                else if (isAwaitingEntryChoice) retryEntryChoice();
-                else retryOrStop("I did not catch that.");
+                else cascadeFromBuiltIn(pendingSttMode);
             }
 
             @Override

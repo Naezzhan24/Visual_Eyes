@@ -170,6 +170,17 @@ public class GoogleSttManager {
             vadCalibrating = false;
         }
 
+        // FIX: every chunk from here on is kept regardless of amplitude — the
+        // threshold below now only decides WHEN to stop listening, not which
+        // bytes get sent to Google. This used to skip adding "quiet" chunks
+        // outright, which silently discarded real speech whenever the
+        // calibrated threshold came out a bit too high for the room/mic (e.g.
+        // AutomaticGainControl isn't available on every device) — the
+        // transcript would get truncated down to just the loudest syllable,
+        // producing an empty/garbled result even though the user spoke
+        // normally the whole time.
+        audioChunks.add(chunk);
+
         if (elapsedSinceStart >= VAD_MAX_DURATION_MS) {
             signalSpeechEnded();
             return;
@@ -178,13 +189,10 @@ public class GoogleSttManager {
         if (rms >= vadSpeechThreshold) {
             vadSpeechDetected = true;
             vadSilenceStartMs = -1L;
-            audioChunks.add(chunk);
             return;
         }
 
         if (!vadSpeechDetected) return;
-
-        audioChunks.add(chunk);
 
         if (vadSilenceStartMs < 0) {
             vadSilenceStartMs = now;

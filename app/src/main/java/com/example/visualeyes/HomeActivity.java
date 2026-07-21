@@ -55,7 +55,7 @@ public class HomeActivity extends AppCompatActivity {
     private TextView txtCurrentFontSize;
     private SeekBar seekFontSize;
     private TextView txtFontSizeTitle, txtFontSizeSubtitle;
-    private ImageView btnMenu, btnOpenLearningMaterial;
+    private ImageView btnMenu, btnOpenLearningMaterial, btnHelp;
     private LinearLayout navHome, navMaterials, navProfile;
     private CardView cardAnnouncement, cardLearningMaterial, cardFontSizeControl, bottomNavCard;
     private View topBar;
@@ -66,11 +66,13 @@ public class HomeActivity extends AppCompatActivity {
     private MaterialsDrawerController materialsDrawer;
 
     private GoogleTtsManager googleTts;
+    private GoogleSttManager googleStt;
     private SpeechRecognizer speechRecognizer;
     private android.content.Intent speechIntent;
 
     private HybridSpeechManager hybridSpeech;
     private static final long VOSK_LISTEN_TIMEOUT_MS = 6000L;
+    private static final long CLOUD_STT_SAFETY_TIMEOUT_MS = 11000L;
 
     private AuthManager authManager;
     private SharedPreferences prefs;
@@ -109,6 +111,7 @@ public class HomeActivity extends AppCompatActivity {
         authManager = new AuthManager(this);
         prefs       = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         googleTts   = new GoogleTtsManager(this);
+        googleStt   = new GoogleSttManager();
 
         bindViews();
         applyFontSize();
@@ -140,6 +143,7 @@ public class HomeActivity extends AppCompatActivity {
     private void bindViews() {
         topBar                      = findViewById(R.id.topBarHome);
         btnMenu                     = findViewById(R.id.btnMenu);
+        btnHelp                     = findViewById(R.id.btnHelp);
         btnOpenLearningMaterial     = findViewById(R.id.btnOpenLearningMaterial);
         txtWelcome                  = findViewById(R.id.txtWelcome);
         txtSubtitle                 = findViewById(R.id.txtSubtitle);
@@ -210,19 +214,25 @@ public class HomeActivity extends AppCompatActivity {
                     case SpeechRecognizer.ERROR_NO_MATCH:
                     case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
                         updateVoiceStatus("No speech detected.");
-                        break;
+                        if (!isTtsSpeaking) scheduleListening(1000);
+                        return;
                     case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
-                    case SpeechRecognizer.ERROR_CLIENT:
                         handler.postDelayed(() -> {
                             initSpeechRecognizer();
                             scheduleListening(800);
                         }, 400);
                         return;
                     default:
+                        Log.e("Home_STT", "Built-in recognizer onError code=" + error);
+                        if (SpeechEngineHealth.isRecognizerIncompatible(error)) {
+                            Log.e("Home_STT", "Built-in recognizer is not usable on this device — "
+                                    + "skipping it from now on.");
+                            SpeechEngineHealth.markBuiltInRecognizerBroken(HomeActivity.this);
+                        }
                         updateVoiceStatus("Voice error.");
-                        break;
+                        if (!isTtsSpeaking) cascadeFromBuiltIn();
+                        return;
                 }
-                if (!isTtsSpeaking) scheduleListening(1000);
             }
 
             @Override public void onResults(Bundle results) {
@@ -232,7 +242,7 @@ public class HomeActivity extends AppCompatActivity {
                 if (matches != null && !matches.isEmpty()) {
                     handleCommand(matches.get(0).trim());
                 } else {
-                    if (!isTtsSpeaking) scheduleListening(800);
+                    if (!isTtsSpeaking) cascadeFromBuiltIn();
                 }
             }
 
@@ -256,10 +266,60 @@ public class HomeActivity extends AppCompatActivity {
 
     private void startListening() {
         if (isListening || isTtsSpeaking) return;
+        if (SpeechEngineHealth.isBuiltInRecognizerBroken(this)) {
+            cascadeFromBuiltIn();
+            return;
+        }
+        startRawAndroidListening();
+    }
+
+    private void cascadeFromBuiltIn() {
+        if (NetworkUtils.hasInternet(this)) {
+            startCloudSttListening();
+        } else if (hybridSpeech != null && hybridSpeech.isReady()) {
+            startVoskListening();
+        } else if (!isTtsSpeaking) {
+            scheduleListening(1000);
+        }
+    }
+
+    private void startCloudSttListening() {
+        if (isListening || isTtsSpeaking) return;
+        isListening = true;
+        updateVoiceStatus("Listening...");
+        updateRecognizedText("Waiting for speech...");
+
+        final boolean[] stopTriggered = {false};
+        Runnable stopAndTranscribe = () -> {
+            if (stopTriggered[0] || !isListening) return;
+            stopTriggered[0] = true;
+            isListening = false;
+            updateVoiceStatus("Processing...");
+            googleStt.stopAndRecognize("command", new GoogleSttManager.SttCallback() {
+                @Override public void onResult(String transcript) {
+                    if (transcript != null && !transcript.trim().isEmpty()) {
+                        handleCommand(transcript.trim());
+                    } else {
+                        cascadeAfterCloudStt();
+                    }
+                }
+
+                @Override public void onError(String message) {
+                    Log.e("Home_STT", "Cloud STT failed (" + message + "), falling back to Vosk.");
+                    cascadeAfterCloudStt();
+                }
+            });
+        };
+
+        googleStt.startRecording(stopAndTranscribe::run);
+        handler.postDelayed(stopAndTranscribe, CLOUD_STT_SAFETY_TIMEOUT_MS);
+    }
+
+    private void cascadeAfterCloudStt() {
         if (hybridSpeech != null && hybridSpeech.isReady()) {
             startVoskListening();
-        } else {
-            startRawAndroidListening();
+        } else if (!isTtsSpeaking) {
+            scheduleListening(1000);
         }
     }
 
@@ -294,8 +354,8 @@ public class HomeActivity extends AppCompatActivity {
 
             @Override public void onError(String message) {
                 isListening = false;
-                Log.e("Home_STT", "Vosk failed (" + message + "), falling back to raw recognizer.");
-                startRawAndroidListening();
+                Log.e("Home_STT", "Vosk failed (" + message + ") — all engines exhausted, retrying from the top.");
+                if (!isTtsSpeaking) scheduleListening(1000);
             }
         }, useWhisper, null);
 
@@ -313,13 +373,14 @@ public class HomeActivity extends AppCompatActivity {
             speechRecognizer.startListening(speechIntent);
         } catch (Exception e) {
             isListening = false;
-            scheduleListening(1000);
+            cascadeFromBuiltIn();
         }
     }
 
     private void stopListening() {
         isListening = false;
         if (hybridSpeech != null) hybridSpeech.cancel();
+        if (googleStt != null) googleStt.cancel();
         try { if (speechRecognizer != null) speechRecognizer.stopListening(); } catch (Exception ignored) {}
         try { if (speechRecognizer != null) speechRecognizer.cancel(); }        catch (Exception ignored) {}
     }
@@ -666,7 +727,13 @@ public class HomeActivity extends AppCompatActivity {
     private void setupMenuButton() {
 
         if (btnMenu          != null) btnMenu.setOnClickListener(v -> { bounceView(btnMenu); materialsDrawer.open(); });
+        if (btnHelp          != null) btnHelp.setOnClickListener(v -> { bounceView(btnHelp); openHelp(); });
         if (cardAnnouncement != null) cardAnnouncement.setOnClickListener(v -> { bounceView(cardAnnouncement); readAnnouncement(); });
+    }
+
+    private void openHelp() {
+        startActivity(new Intent(this, HelpActivity.class));
+        overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left);
     }
 
     private void setupMaterialCard() {
@@ -695,7 +762,7 @@ public class HomeActivity extends AppCompatActivity {
     private void updateRecognizedText(String s) { runOnUiThread(() -> { if (txtRecognizedText != null) txtRecognizedText.setText(s); }); }
 
     private void setupPressAnimations() {
-        for (View v : new View[]{btnMenu, btnOpenLearningMaterial, cardAnnouncement,
+        for (View v : new View[]{btnMenu, btnHelp, btnOpenLearningMaterial, cardAnnouncement,
                 cardLearningMaterial, navHome, navMaterials, navProfile}) {
             if (v == null) continue;
             v.setOnTouchListener((view, event) -> {
@@ -805,6 +872,7 @@ public class HomeActivity extends AppCompatActivity {
         stopListening();
         try { if (speechRecognizer != null) { speechRecognizer.cancel(); speechRecognizer.destroy(); } } catch (Exception ignored) {}
         if (hybridSpeech != null) hybridSpeech.destroy();
+        if (googleStt != null) googleStt.destroy();
         if (googleTts != null) googleTts.destroy();
         super.onDestroy();
     }

@@ -62,11 +62,13 @@ public class MaterialsActivity extends AppCompatActivity {
     private final ArrayList<LearningMaterial> materialList = new ArrayList<>();
 
     private GoogleTtsManager googleTts;
+    private GoogleSttManager googleStt;
     private SpeechRecognizer speechRecognizer;
     private Intent speechIntent;
 
     private HybridSpeechManager hybridSpeech;
     private static final long VOSK_LISTEN_TIMEOUT_MS = 6000L;
+    private static final long CLOUD_STT_SAFETY_TIMEOUT_MS = 11000L;
 
     private boolean isListening        = false;
     private boolean isTtsSpeaking      = false;
@@ -112,6 +114,7 @@ public class MaterialsActivity extends AppCompatActivity {
 
         prefs     = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         googleTts = new GoogleTtsManager(this);
+        googleStt = new GoogleSttManager();
         hybridSpeech = new HybridSpeechManager(this);
         hybridSpeech.initVosk(
                 () -> Log.d("Materials_STT", "Vosk model ready — now the primary listen engine."),
@@ -220,20 +223,25 @@ public class MaterialsActivity extends AppCompatActivity {
                     case SpeechRecognizer.ERROR_NO_MATCH:
                     case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
                         updateVoiceStatus("No speech detected.");
-                        break;
+                        if (!isTtsSpeaking) scheduleListening(1000);
+                        return;
                     case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
-                    case SpeechRecognizer.ERROR_CLIENT:
-
                         handler.postDelayed(() -> {
                             initSpeechRecognizer();
                             scheduleListening(800);
                         }, 400);
                         return;
                     default:
+                        Log.e("Materials_STT", "Built-in recognizer onError code=" + error);
+                        if (SpeechEngineHealth.isRecognizerIncompatible(error)) {
+                            Log.e("Materials_STT", "Built-in recognizer is not usable on this device — "
+                                    + "skipping it from now on.");
+                            SpeechEngineHealth.markBuiltInRecognizerBroken(MaterialsActivity.this);
+                        }
                         updateVoiceStatus("Voice error.");
-                        break;
+                        if (!isTtsSpeaking) cascadeFromBuiltIn();
+                        return;
                 }
-                if (!isTtsSpeaking) scheduleListening(1000);
             }
 
             @Override public void onResults(Bundle results) {
@@ -243,7 +251,7 @@ public class MaterialsActivity extends AppCompatActivity {
                 if (matches != null && !matches.isEmpty()) {
                     handleCommand(matches.get(0).trim());
                 } else {
-                    if (!isTtsSpeaking) scheduleListening(800);
+                    if (!isTtsSpeaking) cascadeFromBuiltIn();
                 }
             }
 
@@ -263,10 +271,60 @@ public class MaterialsActivity extends AppCompatActivity {
         if (isListening || isTtsSpeaking) return;
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) return;
+        if (SpeechEngineHealth.isBuiltInRecognizerBroken(this)) {
+            cascadeFromBuiltIn();
+            return;
+        }
+        startRawAndroidListening();
+    }
+
+    private void cascadeFromBuiltIn() {
+        if (NetworkUtils.hasInternet(this)) {
+            startCloudSttListening();
+        } else if (hybridSpeech != null && hybridSpeech.isReady()) {
+            startVoskListening();
+        } else if (!isTtsSpeaking) {
+            scheduleListening(1000);
+        }
+    }
+
+    private void startCloudSttListening() {
+        if (isListening || isTtsSpeaking) return;
+        isListening = true;
+        updateVoiceStatus("Listening...");
+        updateRecognizedText("Waiting for speech...");
+
+        final boolean[] stopTriggered = {false};
+        Runnable stopAndTranscribe = () -> {
+            if (stopTriggered[0] || !isListening) return;
+            stopTriggered[0] = true;
+            isListening = false;
+            updateVoiceStatus("Processing...");
+            googleStt.stopAndRecognize("command", new GoogleSttManager.SttCallback() {
+                @Override public void onResult(String transcript) {
+                    if (transcript != null && !transcript.trim().isEmpty()) {
+                        handleCommand(transcript.trim());
+                    } else {
+                        cascadeAfterCloudStt();
+                    }
+                }
+
+                @Override public void onError(String message) {
+                    Log.e("Materials_STT", "Cloud STT failed (" + message + "), falling back to Vosk.");
+                    cascadeAfterCloudStt();
+                }
+            });
+        };
+
+        googleStt.startRecording(stopAndTranscribe::run);
+        handler.postDelayed(stopAndTranscribe, CLOUD_STT_SAFETY_TIMEOUT_MS);
+    }
+
+    private void cascadeAfterCloudStt() {
         if (hybridSpeech != null && hybridSpeech.isReady()) {
             startVoskListening();
-        } else {
-            startRawAndroidListening();
+        } else if (!isTtsSpeaking) {
+            scheduleListening(1000);
         }
     }
 
@@ -295,8 +353,8 @@ public class MaterialsActivity extends AppCompatActivity {
 
             @Override public void onError(String message) {
                 isListening = false;
-                Log.e("Materials_STT", "Vosk failed (" + message + "), falling back to raw recognizer.");
-                startRawAndroidListening();
+                Log.e("Materials_STT", "Vosk failed (" + message + ") — all engines exhausted, retrying from the top.");
+                if (!isTtsSpeaking) scheduleListening(1000);
             }
         }, useWhisper, null);
 
@@ -316,13 +374,14 @@ public class MaterialsActivity extends AppCompatActivity {
             speechRecognizer.startListening(speechIntent);
         } catch (Exception e) {
             isListening = false;
-            scheduleListening(1000);
+            cascadeFromBuiltIn();
         }
     }
 
     private void stopListening() {
         isListening = false;
         if (hybridSpeech != null) hybridSpeech.cancel();
+        if (googleStt != null) googleStt.cancel();
         try { if (speechRecognizer != null) speechRecognizer.stopListening(); } catch (Exception ignored) {}
         try { if (speechRecognizer != null) speechRecognizer.cancel(); }        catch (Exception ignored) {}
     }
@@ -938,6 +997,7 @@ public class MaterialsActivity extends AppCompatActivity {
         stopListening();
         try { if (speechRecognizer != null) { speechRecognizer.cancel(); speechRecognizer.destroy(); } } catch (Exception ignored) {}
         if (hybridSpeech != null) hybridSpeech.destroy();
+        if (googleStt != null) googleStt.destroy();
         if (googleTts != null) googleTts.destroy();
         super.onDestroy();
     }

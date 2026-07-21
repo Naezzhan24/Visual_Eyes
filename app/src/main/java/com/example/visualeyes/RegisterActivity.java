@@ -5,7 +5,6 @@ import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -33,7 +32,6 @@ import android.widget.Toast;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.content.ContextCompat;
 
 import com.android.volley.DefaultRetryPolicy;
 import com.android.volley.Request;
@@ -46,7 +44,6 @@ import org.json.JSONObject;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
@@ -98,21 +95,6 @@ public class RegisterActivity extends AppCompatActivity {
         googleTts.speak(text, VOICE_SPEAKING_RATE, callback);
     }
 
-    private boolean isSpellingMode = false;
-    private final StringBuilder spellingBuffer = new StringBuilder();
-    private static final Map<String, Character> PHONETIC = new LinkedHashMap<>();
-    static {
-        PHONETIC.put("apple", 'a'); PHONETIC.put("ball", 'b'); PHONETIC.put("cat", 'c');
-        PHONETIC.put("dog", 'd'); PHONETIC.put("elephant", 'e'); PHONETIC.put("fish", 'f');
-        PHONETIC.put("goat", 'g'); PHONETIC.put("house", 'h'); PHONETIC.put("igloo", 'i');
-        PHONETIC.put("juice", 'j'); PHONETIC.put("kite", 'k'); PHONETIC.put("lion", 'l');
-        PHONETIC.put("monkey", 'm'); PHONETIC.put("nose", 'n'); PHONETIC.put("orange", 'o');
-        PHONETIC.put("pig", 'p'); PHONETIC.put("queen", 'q'); PHONETIC.put("rabbit", 'r');
-        PHONETIC.put("sun", 's'); PHONETIC.put("table", 't'); PHONETIC.put("umbrella", 'u');
-        PHONETIC.put("van", 'v'); PHONETIC.put("water", 'w'); PHONETIC.put("xylophone", 'x');
-        PHONETIC.put("yellow", 'y'); PHONETIC.put("zebra", 'z');
-    }
-
     private int voiceSessionId = 0;
 
     private String lastSpokenInstruction = "";
@@ -134,13 +116,34 @@ public class RegisterActivity extends AppCompatActivity {
                     updateVoiceStatus("Microphone enabled.");
                     lastSpokenInstruction = "Microphone permission granted.";
                     say(lastSpokenInstruction, () ->
-                            handler.postDelayed(this::startVoiceRegistration, 400));
+                            MicReadiness.awaitReady(handler, this::startVoiceRegistration));
                 } else {
                     updateVoiceStatus("Microphone permission denied.");
                     lastSpokenInstruction = "Microphone permission is required for voice registration.";
                     say(lastSpokenInstruction, null);
                 }
             });
+
+    private boolean hasAudioPermission() {
+        return MicPermissionHelper.hasAudioPermission(this);
+    }
+
+    private void requestMicPermissionWithRationale() {
+        updateVoiceStatus("Requesting microphone access...");
+        lastSpokenInstruction = "I need access to your microphone for voice registration. " +
+                "A system permission dialog will appear next — please allow it.";
+        say(lastSpokenInstruction, () -> {
+            MicPermissionHelper.markRequested(this);
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO);
+        });
+    }
+
+    private void explainPermanentDenialAndOpenSettings() {
+        updateVoiceStatus("Microphone permission blocked.");
+        lastSpokenInstruction = "Microphone access was previously denied and can't be requested again here. " +
+                "Opening app settings so you can enable it under Permissions.";
+        say(lastSpokenInstruction, () -> MicPermissionHelper.openAppSettings(this));
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -183,11 +186,15 @@ public class RegisterActivity extends AppCompatActivity {
                 lastSpokenInstruction = "Student registration. Let's continue by voice. " +
                         "You can switch to typing anytime by tapping a field.";
                 say(lastSpokenInstruction, () -> {
-                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                            != PackageManager.PERMISSION_GRANTED) {
-                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO);
-                    } else {
+                    if (hasAudioPermission()) {
                         startVoiceRegistration();
+                    } else if (MicPermissionHelper.isPermanentlyDenied(this)) {
+                        explainPermanentDenialAndOpenSettings();
+                    } else if (MicPermissionHelper.isScreenReaderActive(this)) {
+                        lastSpokenInstruction = "Tap Voice Register when you're ready to enable the microphone.";
+                        say(lastSpokenInstruction, null);
+                    } else {
+                        requestMicPermissionWithRationale();
                     }
                 });
             } else {
@@ -206,11 +213,12 @@ public class RegisterActivity extends AppCompatActivity {
 
         voiceRegisterBtn.setOnClickListener(v -> {
             animateClick(v);
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                    != PackageManager.PERMISSION_GRANTED) {
-                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO);
-            } else {
+            if (hasAudioPermission()) {
                 startVoiceRegistration();
+            } else if (MicPermissionHelper.isPermanentlyDenied(this)) {
+                explainPermanentDenialAndOpenSettings();
+            } else {
+                requestMicPermissionWithRationale();
             }
         });
     }
@@ -530,6 +538,11 @@ public class RegisterActivity extends AppCompatActivity {
     private void startVoiceInput() {
         if (!isVoiceMode || isFinishing() || isDestroyed()) return;
 
+        if (SpeechEngineHealth.isBuiltInRecognizerBroken(this)) {
+            cascadeFromBuiltIn();
+            return;
+        }
+
         stopListeningSafely();
 
         if (speechRecognizer != null) {
@@ -539,6 +552,7 @@ public class RegisterActivity extends AppCompatActivity {
 
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             Log.e("Register_STT", "Built-in recognizer unavailable on this device — using Cloud STT.");
+            SpeechEngineHealth.markBuiltInRecognizerBroken(this);
             startCloudSttVoiceInput();
             return;
         }
@@ -585,6 +599,15 @@ public class RegisterActivity extends AppCompatActivity {
                 isListening = false;
                 if (!isVoiceMode || isAdvancingField) return;
 
+                Log.e("Register_STT", "Built-in recognizer onError code=" + error
+                        + " (" + speechErrorName(error) + ")");
+
+                if (SpeechEngineHealth.isRecognizerIncompatible(error)) {
+                    Log.e("Register_STT", "Built-in recognizer is not usable on this device — "
+                            + "skipping it from now on.");
+                    SpeechEngineHealth.markBuiltInRecognizerBroken(RegisterActivity.this);
+                }
+
                 if (!latestPartialText.trim().isEmpty()) {
                     String heard = latestPartialText.trim();
                     latestPartialText = "";
@@ -613,6 +636,7 @@ public class RegisterActivity extends AppCompatActivity {
                     hasProcessedSpeech = true;
                     handleSpokenText(spoken);
                 } else {
+                    Log.e("Register_STT", "Built-in recognizer onResults returned no usable transcript.");
                     cascadeFromBuiltIn();
                 }
             }
@@ -675,10 +699,30 @@ public class RegisterActivity extends AppCompatActivity {
     }
 
     private void cascadeFromBuiltIn() {
-        if (NetworkUtils.hasInternet(this)) {
+        boolean hasInternet = NetworkUtils.hasInternet(this);
+        Log.e("Register_STT", "Cascading from built-in recognizer — hasInternet=" + hasInternet
+                + ", going to " + (hasInternet ? "Cloud STT" : "Vosk"));
+        if (hasInternet) {
             startCloudSttVoiceInput();
         } else {
             startVoskVoiceInput();
+        }
+    }
+
+    private static String speechErrorName(int error) {
+        switch (error) {
+            case SpeechRecognizer.ERROR_AUDIO:                    return "ERROR_AUDIO";
+            case SpeechRecognizer.ERROR_CLIENT:                   return "ERROR_CLIENT";
+            case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS: return "ERROR_INSUFFICIENT_PERMISSIONS";
+            case SpeechRecognizer.ERROR_NETWORK:                  return "ERROR_NETWORK";
+            case SpeechRecognizer.ERROR_NETWORK_TIMEOUT:          return "ERROR_NETWORK_TIMEOUT";
+            case SpeechRecognizer.ERROR_NO_MATCH:                 return "ERROR_NO_MATCH";
+            case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:          return "ERROR_RECOGNIZER_BUSY";
+            case SpeechRecognizer.ERROR_SERVER:                   return "ERROR_SERVER";
+            case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:           return "ERROR_SPEECH_TIMEOUT";
+            case 12:                                              return "ERROR_LANGUAGE_NOT_SUPPORTED";
+            case 13:                                              return "ERROR_LANGUAGE_UNAVAILABLE";
+            default:                                              return "UNKNOWN";
         }
     }
 
@@ -686,7 +730,8 @@ public class RegisterActivity extends AppCompatActivity {
         retryCount++;
         if (retryCount <= MAX_RETRY) {
             updateVoiceStatus("Didn't catch that. Retrying...");
-            lastSpokenInstruction = "I did not hear you clearly. Please say it again.";
+            lastSpokenInstruction = "I did not hear you clearly. Please move closer to the microphone " +
+                    "or speak a little louder, and try again.";
             say(lastSpokenInstruction, this::startVoiceInput);
         } else {
             retryCount = 0;
@@ -709,11 +754,6 @@ public class RegisterActivity extends AppCompatActivity {
             lastSpokenInstruction = "Voice registration cancelled.";
             say(lastSpokenInstruction, null);
             updateVoiceStatus("Voice registration cancelled.");
-            return;
-        }
-
-        if (isSpellingMode) {
-            handleSpellingInput(lower);
             return;
         }
 
@@ -745,13 +785,9 @@ public class RegisterActivity extends AppCompatActivity {
                 isConfirmingField = false;
                 retryCount        = 0;
                 pendingValue      = "";
-                if (isNameField(currentFieldIndex)) {
-                    enterSpellingCorrectionMode();
-                } else {
-                    lastSpokenInstruction = "Okay, please say it again.";
-                    say(lastSpokenInstruction,
-                            () -> handler.postDelayed(this::promptCurrentField, 400));
-                }
+                lastSpokenInstruction = "Okay, please say it again.";
+                say(lastSpokenInstruction,
+                        () -> handler.postDelayed(this::promptCurrentField, 400));
 
             } else {
 
@@ -896,10 +932,6 @@ public class RegisterActivity extends AppCompatActivity {
         }
     }
 
-    private boolean isNameField(int index) {
-        return index == 0 || index == 1 || index == 2;
-    }
-
     private String spellOut(String s) {
         StringBuilder sb = new StringBuilder();
         String upper = s.toUpperCase(Locale.US);
@@ -909,58 +941,6 @@ public class RegisterActivity extends AppCompatActivity {
             sb.append(c == ' ' ? "space" : String.valueOf(c));
         }
         return sb.toString();
-    }
-
-    private void enterSpellingCorrectionMode() {
-        isSpellingMode = true;
-        spellingBuffer.setLength(0);
-        updateVoiceStatus("Spelling correction...");
-        lastSpokenInstruction = "Let's spell it instead, one letter at a time. " +
-                "Say each letter using a word, like A as in apple, or B as in ball. " +
-                "Say done when finished, or undo to remove the last letter.";
-        say(lastSpokenInstruction, this::startVoiceInput);
-    }
-
-    private void handleSpellingInput(String lower) {
-        if (lower.contains("done")) {
-            String spelled = spellingBuffer.toString();
-            if (spelled.isEmpty()) {
-                lastSpokenInstruction = "You haven't spelled any letters yet. Say a letter, like A as in apple.";
-                say(lastSpokenInstruction, this::startVoiceInput);
-                return;
-            }
-            isSpellingMode = false;
-            confirmField(capitalizeName(spelled));
-            return;
-        }
-        if (lower.contains("undo")) {
-            if (spellingBuffer.length() > 0) spellingBuffer.deleteCharAt(spellingBuffer.length() - 1);
-            lastSpokenInstruction = "Removed. Current spelling: " + spellOut(spellingBuffer.toString()) +
-                    ". Continue spelling, or say done.";
-            say(lastSpokenInstruction, this::startVoiceInput);
-            return;
-        }
-
-        Character letter = matchPhoneticLetter(lower);
-        if (letter != null) {
-            spellingBuffer.append(letter);
-            lastSpokenInstruction = Character.toUpperCase(letter) + ". Next letter, or say done.";
-            say(lastSpokenInstruction, this::startVoiceInput);
-        } else {
-            lastSpokenInstruction = "I didn't get that letter. Say it like, A as in apple.";
-            say(lastSpokenInstruction, this::startVoiceInput);
-        }
-    }
-
-    private Character matchPhoneticLetter(String lower) {
-        for (Map.Entry<String, Character> entry : PHONETIC.entrySet()) {
-            if (lower.contains(entry.getKey())) return entry.getValue();
-        }
-        String trimmed = lower.trim();
-        if (trimmed.length() == 1 && trimmed.charAt(0) >= 'a' && trimmed.charAt(0) <= 'z') {
-            return trimmed.charAt(0);
-        }
-        return null;
     }
 
     private String processVoiceInput(String input) {
@@ -1241,8 +1221,8 @@ public class RegisterActivity extends AppCompatActivity {
 
     private void animateViews() {
         if (logoImage != null) UiAnim.popIn(logoImage, 0);
-        View[] views = { txtVoiceStatus, fname, mname, lname, age, yearLevel,
-                schoolid, email, password, confirmPassword, continueBtn, voiceRegisterBtn };
+        View[] views = { voiceRegisterBtn, txtVoiceStatus, fname, mname, lname, age, yearLevel,
+                schoolid, email, password, confirmPassword, continueBtn };
         for (int i = 0; i < views.length; i++) {
             View v = views[i];
             if (v == null) continue;

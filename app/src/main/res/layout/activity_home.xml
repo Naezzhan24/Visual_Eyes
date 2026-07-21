@@ -35,13 +35,26 @@
                 app:tint="#FFFFFF" />
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
                 android:layout_marginStart="2dp"
                 android:text="VisualED"
                 android:textColor="#FFFFFF"
                 android:textSize="19sp"
                 android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/btnHelp"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:padding="10dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="Help"
+                android:src="@android:drawable/ic_menu_info_details"
+                app:tint="#FFFFFF" />
         </LinearLayout>
 
         <!-- CONTENT -->

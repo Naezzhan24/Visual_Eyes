@@ -130,6 +130,11 @@
             android:name=".ProfileActivity"
             android:exported="false" />
 
+        <!-- HELP / USER GUIDE -->
+        <activity
+            android:name=".HelpActivity"
+            android:exported="false" />
+
         <!-- FEEDBACK SYSTEM -->
         <activity
             android:name=".FeedbackActivity"

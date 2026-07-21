@@ -72,7 +72,7 @@ public class ProfileActivity extends AppCompatActivity {
     private TextView txtStudentName, txtCourse, txtEmail, txtStudentNumber, txtImpairmentLevel;
     private TextView txtVoiceStatus, txtRecognizedText, txtVoiceHint;
     private TextView textHome, textMaterials, textProfile, txtStudentInfoLabel;
-    private LinearLayout optionTts, optionStt, navHome, navMaterials, navProfile;
+    private LinearLayout optionTts, optionStt, optionHelp, navHome, navMaterials, navProfile;
     private SwitchCompat switchTts, switchStt;
     private Button btnRetakeAssessment, btnLogout;
     private CardView cardProfileInfo, cardImpairmentLevel, cardVoiceStatus, cardOptions, bottomNavCard;
@@ -85,8 +85,10 @@ public class ProfileActivity extends AppCompatActivity {
     private MaterialsDrawerController materialsDrawer;
 
     private GoogleTtsManager googleTts;
+    private GoogleSttManager googleStt;
     private SpeechRecognizer speechRecognizer;
     private Intent speechIntent;
+    private static final long CLOUD_STT_SAFETY_TIMEOUT_MS = 11000L;
 
     private HybridSpeechManager hybridSpeech;
     private static final long VOSK_LISTEN_TIMEOUT_MS = 6000L;
@@ -160,6 +162,7 @@ public class ProfileActivity extends AppCompatActivity {
         prefs       = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
 
         googleTts = new GoogleTtsManager(this);
+        googleStt = new GoogleSttManager();
         hybridSpeech = new HybridSpeechManager(this);
         hybridSpeech.initVosk(
                 () -> Log.d("Profile_STT", "Vosk model ready — now the primary listen engine."),
@@ -209,6 +212,7 @@ public class ProfileActivity extends AppCompatActivity {
         txtVoiceHint       = findViewById(R.id.txtVoiceHint);
         optionTts          = findViewById(R.id.optionTts);
         optionStt          = findViewById(R.id.optionStt);
+        optionHelp         = findViewById(R.id.optionHelp);
         switchTts          = findViewById(R.id.switchTts);
         switchStt          = findViewById(R.id.switchStt);
         navHome            = findViewById(R.id.navHome);
@@ -272,17 +276,27 @@ public class ProfileActivity extends AppCompatActivity {
                 switch (error) {
                     case SpeechRecognizer.ERROR_NO_MATCH:
                     case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
-                        updateVoiceStatus("No speech detected.");         break;
+                        updateVoiceStatus("No speech detected.");
+                        updateRecognizedText("Waiting for speech...");
+                        if (isSttEnabled && !isTtsSpeaking) scheduleListening(LISTEN_DELAY_NORMAL);
+                        return;
                     case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
-                        updateVoiceStatus("Recognizer busy.");            break;
-                    case SpeechRecognizer.ERROR_NETWORK:
-                    case SpeechRecognizer.ERROR_NETWORK_TIMEOUT:
-                        updateVoiceStatus("Network error.");              break;
+                        updateVoiceStatus("Recognizer busy.");
+                        updateRecognizedText("Waiting for speech...");
+                        if (isSttEnabled && !isTtsSpeaking) scheduleListening(LISTEN_DELAY_NORMAL);
+                        return;
                     default:
-                        updateVoiceStatus("Voice recognition failed.");   break;
+                        Log.e("Profile_STT", "Built-in recognizer onError code=" + error);
+                        if (SpeechEngineHealth.isRecognizerIncompatible(error)) {
+                            Log.e("Profile_STT", "Built-in recognizer is not usable on this device — "
+                                    + "skipping it from now on.");
+                            SpeechEngineHealth.markBuiltInRecognizerBroken(ProfileActivity.this);
+                        }
+                        updateVoiceStatus("Voice recognition failed.");
+                        updateRecognizedText("Waiting for speech...");
+                        if (isSttEnabled && !isTtsSpeaking) cascadeFromBuiltIn();
+                        return;
                 }
-                updateRecognizedText("Waiting for speech...");
-                if (isSttEnabled && !isTtsSpeaking) scheduleListening(LISTEN_DELAY_NORMAL);
             }
 
             @Override public void onResults(Bundle results) {
@@ -294,7 +308,7 @@ public class ProfileActivity extends AppCompatActivity {
                     processCommand(matches.get(0).trim());
                 } else {
                     updateVoiceStatus("No speech detected.");
-                    if (isSttEnabled && !isTtsSpeaking) scheduleListening(LISTEN_DELAY_AFTER_TTS);
+                    if (isSttEnabled && !isTtsSpeaking) cascadeFromBuiltIn();
                 }
             }
 
@@ -489,10 +503,63 @@ public class ProfileActivity extends AppCompatActivity {
 
     private void startVoiceRecognition() {
         if (!isSttEnabled || isTtsSpeaking || isListening) return;
-        if (hybridSpeech != null && hybridSpeech.isReady()) {
+        if (SpeechEngineHealth.isBuiltInRecognizerBroken(this)) {
+            cascadeFromBuiltIn();
+            return;
+        }
+        startRawAndroidListening();
+    }
+
+    private void cascadeFromBuiltIn() {
+        if (!isSttEnabled || isTtsSpeaking) return;
+        if (NetworkUtils.hasInternet(this)) {
+            startCloudSttListening();
+        } else if (hybridSpeech != null && hybridSpeech.isReady()) {
             startVoskListening();
         } else {
-            startRawAndroidListening();
+            scheduleListening(LISTEN_DELAY_NORMAL);
+        }
+    }
+
+    private void startCloudSttListening() {
+        if (!isSttEnabled || isTtsSpeaking || isListening) return;
+        commandHandled = false;
+        isListening    = true;
+        updateVoiceStatus("Listening...");
+        updateRecognizedText("Waiting for speech...");
+
+        final boolean[] stopTriggered = {false};
+        Runnable stopAndTranscribe = () -> {
+            if (stopTriggered[0] || !isListening) return;
+            stopTriggered[0] = true;
+            isListening = false;
+            updateVoiceStatus("Processing...");
+            googleStt.stopAndRecognize("command", new GoogleSttManager.SttCallback() {
+                @Override public void onResult(String transcript) {
+                    if (commandHandled) return;
+                    if (transcript != null && !transcript.trim().isEmpty()) {
+                        processCommand(transcript.trim());
+                    } else {
+                        cascadeAfterCloudStt();
+                    }
+                }
+
+                @Override public void onError(String message) {
+                    Log.e("Profile_STT", "Cloud STT failed (" + message + "), falling back to Vosk.");
+                    cascadeAfterCloudStt();
+                }
+            });
+        };
+
+        googleStt.startRecording(stopAndTranscribe::run);
+        handler.postDelayed(stopAndTranscribe, CLOUD_STT_SAFETY_TIMEOUT_MS);
+    }
+
+    private void cascadeAfterCloudStt() {
+        if (hybridSpeech != null && hybridSpeech.isReady()) {
+            startVoskListening();
+        } else if (isSttEnabled && !isTtsSpeaking) {
+            scheduleListening(LISTEN_DELAY_NORMAL);
         }
     }
 
@@ -532,8 +599,8 @@ public class ProfileActivity extends AppCompatActivity {
             @Override public void onError(String message) {
                 isListening    = false;
                 commandHandled = false;
-                Log.e("Profile_STT", "Vosk failed (" + message + "), falling back to raw recognizer.");
-                startRawAndroidListening();
+                Log.e("Profile_STT", "Vosk failed (" + message + ") — all engines exhausted, retrying from the top.");
+                if (isSttEnabled && !isTtsSpeaking) scheduleListening(LISTEN_DELAY_NORMAL);
             }
         }, useWhisper, null);
 
@@ -544,7 +611,12 @@ public class ProfileActivity extends AppCompatActivity {
 
     private void startRawAndroidListening() {
         if (!isSttEnabled || isTtsSpeaking || isListening) return;
-        if (speechRecognizer == null) return;
+        if (speechRecognizer == null) {
+            Log.e("Profile_STT", "Built-in recognizer unavailable on this device — using Cloud STT.");
+            SpeechEngineHealth.markBuiltInRecognizerBroken(this);
+            cascadeFromBuiltIn();
+            return;
+        }
         try {
             commandHandled = false;
             speechRecognizer.cancel();
@@ -553,12 +625,13 @@ public class ProfileActivity extends AppCompatActivity {
             speechRecognizer.startListening(speechIntent);
         } catch (Exception e) {
             isListening = false;
-            scheduleListening(LISTEN_DELAY_NORMAL);
+            cascadeFromBuiltIn();
         }
     }
 
     private void stopListeningSafely() {
         isListening = false;
+        if (googleStt != null) googleStt.cancel();
         if (hybridSpeech != null) hybridSpeech.cancel();
         try { if (speechRecognizer != null) speechRecognizer.stopListening(); } catch (Exception ignored) {}
         try { if (speechRecognizer != null) speechRecognizer.cancel(); }        catch (Exception ignored) {}
@@ -606,6 +679,12 @@ public class ProfileActivity extends AppCompatActivity {
 
         optionTts.setOnClickListener(v -> { bounceView(optionTts); switchTts.toggle(); });
         optionStt.setOnClickListener(v -> { bounceView(optionStt); switchStt.toggle(); });
+        if (optionHelp != null) optionHelp.setOnClickListener(v -> { bounceView(optionHelp); openHelp(); });
+    }
+
+    private void openHelp() {
+        startActivity(new Intent(this, HelpActivity.class));
+        overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left);
     }
 
     private void setupMenuButton() {
@@ -942,7 +1021,7 @@ public class ProfileActivity extends AppCompatActivity {
     }
 
     private void setupPressAnimations() {
-        for (View v : new View[]{btnMenu, optionTts, optionStt, cardProfileInfo, cardImpairmentLevel,
+        for (View v : new View[]{btnMenu, optionTts, optionStt, optionHelp, cardProfileInfo, cardImpairmentLevel,
                 cardVoiceStatus, cardOptions, navHome, navMaterials, navProfile,
                 btnRetakeAssessment, btnLogout, imgProfile, btnEditProfile}) {
             if (v == null) continue;
@@ -1066,6 +1145,7 @@ public class ProfileActivity extends AppCompatActivity {
         stopListeningSafely();
         try { if (speechRecognizer != null) { speechRecognizer.cancel(); speechRecognizer.destroy(); } } catch (Exception ignored) {}
         if (hybridSpeech != null) hybridSpeech.destroy();
+        if (googleStt != null) googleStt.destroy();
         if (googleTts != null) googleTts.destroy();
         super.onDestroy();
     }
