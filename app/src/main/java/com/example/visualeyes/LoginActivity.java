@@ -110,7 +110,7 @@ public class LoginActivity extends AppCompatActivity {
     private static final long CLOUD_STT_SAFETY_TIMEOUT_MS = 11000L;
     private String pendingSttMode = "command";
 
-    private static final float VOICE_SPEAKING_RATE = 1.15f;
+    private static final float VOICE_SPEAKING_RATE = 1.10f;
 
     private void say(String text, GoogleTtsManager.TtsCallback callback) {
         googleTts.speak(text, VOICE_SPEAKING_RATE, callback);
@@ -829,7 +829,8 @@ public class LoginActivity extends AppCompatActivity {
         voiceRetryCount++;
         if (voiceRetryCount <= MAX_VOICE_RETRY) {
             setVoiceStatus(message);
-            lastSpokenInstruction = message + " Please move closer to the microphone, " +
+            lastSpokenInstruction = message + " Please speak closer to the microphone — " +
+                    "it's the small hole at the bottom edge of your phone, near the charging port — " +
                     "speak a little louder, or speak more slowly and clearly, and try again.";
             say(lastSpokenInstruction, () ->
                     handler.postDelayed(this::promptCurrentStep, PROMPT_RETRY_DELAY));

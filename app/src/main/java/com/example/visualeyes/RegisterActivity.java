@@ -90,7 +90,7 @@ public class RegisterActivity extends AppCompatActivity {
 
     private static final long CLOUD_STT_SAFETY_TIMEOUT_MS = 11000L;
 
-    private static final float VOICE_SPEAKING_RATE = 1.15f;
+    private static final float VOICE_SPEAKING_RATE = 1.10f;
 
     private void say(String text, GoogleTtsManager.TtsCallback callback) {
         googleTts.speak(text, VOICE_SPEAKING_RATE, callback);
@@ -733,7 +733,8 @@ public class RegisterActivity extends AppCompatActivity {
         retryCount++;
         if (retryCount <= MAX_RETRY) {
             updateVoiceStatus("Didn't catch that. Retrying...");
-            lastSpokenInstruction = "I did not hear you clearly. Please move closer to the microphone, " +
+            lastSpokenInstruction = "I did not hear you clearly. Please speak closer to the microphone — " +
+                    "it's the small hole at the bottom edge of your phone, near the charging port — " +
                     "speak a little louder, or speak more slowly and clearly, and try again.";
             say(lastSpokenInstruction, this::startVoiceInput);
         } else {
