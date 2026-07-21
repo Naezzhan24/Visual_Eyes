@@ -829,8 +829,8 @@ public class LoginActivity extends AppCompatActivity {
         voiceRetryCount++;
         if (voiceRetryCount <= MAX_VOICE_RETRY) {
             setVoiceStatus(message);
-            lastSpokenInstruction = message + " Please move closer to the microphone " +
-                    "or speak a little louder, and try again.";
+            lastSpokenInstruction = message + " Please move closer to the microphone, " +
+                    "speak a little louder, or speak more slowly and clearly, and try again.";
             say(lastSpokenInstruction, () ->
                     handler.postDelayed(this::promptCurrentStep, PROMPT_RETRY_DELAY));
         } else {

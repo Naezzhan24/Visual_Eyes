@@ -733,8 +733,8 @@ public class RegisterActivity extends AppCompatActivity {
         retryCount++;
         if (retryCount <= MAX_RETRY) {
             updateVoiceStatus("Didn't catch that. Retrying...");
-            lastSpokenInstruction = "I did not hear you clearly. Please move closer to the microphone " +
-                    "or speak a little louder, and try again.";
+            lastSpokenInstruction = "I did not hear you clearly. Please move closer to the microphone, " +
+                    "speak a little louder, or speak more slowly and clearly, and try again.";
             say(lastSpokenInstruction, this::startVoiceInput);
         } else {
             retryCount = 0;
