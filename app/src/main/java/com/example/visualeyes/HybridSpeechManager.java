@@ -290,11 +290,11 @@ public class HybridSpeechManager {
                 ? "a value" : fieldDescription.trim();
         if (tagalog) {
             return "Sinasabi ng speaker ang kanyang " + desc + ". " +
-                    "Karaniwang mga Filipino na pangalan: jerome, dela pena, santos, reyes, garcia, cruz. " +
+                    "Karaniwang mga Filipino na pangalan: bren, jerome, dela pena, santos, reyes, garcia, cruz. " +
                     "I-output lang ang sinabi, walang iba.";
         }
         return "The speaker is saying their " + desc + ". " +
-                "Filipino names are common: jerome, dela pena, santos, reyes, garcia, cruz. " +
+                "Filipino names are common: bren, jerome, dela pena, santos, reyes, garcia, cruz. " +
                 "Numbers spelled out: one=1, two=2, three=3, four=4, five=5, six=6, seven=7, eight=8, nine=9, zero=0. " +
                 "If it's an email, \"at\" means @ and \"dot\" means period. Output only the spoken value exactly.";
     }

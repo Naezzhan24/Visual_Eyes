@@ -43,6 +43,7 @@ import org.json.JSONObject;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -243,6 +244,8 @@ public class LoginActivity extends AppCompatActivity {
 
         speechIntent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
         speechIntent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName());
+        speechIntent.putExtra(RecognizerIntent.EXTRA_BIASING_STRINGS,
+                new ArrayList<>(Arrays.asList(GoogleSttManager.NAME_PHRASE_BOOST)));
 
         speechIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 4000L);
         speechIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3200L);

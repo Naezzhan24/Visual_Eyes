@@ -32,6 +32,16 @@ public class GoogleSttManager {
 
     private static final int SAMPLE_RATE = 16000;
 
+    // Boosted so short given names aren't misheard as common English words
+    // (e.g. "bren" being transcribed as "bread"). Also reused by
+    // LoginActivity/RegisterActivity as RecognizerIntent.EXTRA_BIASING_STRINGS
+    // hints for the built-in SpeechRecognizer, since that's the primary engine.
+    static final String[] NAME_PHRASE_BOOST = {
+            "bren", "jerome", "dela pena", "santos", "reyes", "garcia", "cruz",
+            "bautista", "gonzales", "ramos", "mendoza", "torres", "flores",
+            "villanueva", "aquino", "castillo"
+    };
+
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final OkHttpClient httpClient = new OkHttpClient();
@@ -311,6 +321,7 @@ public class GoogleSttManager {
                 phrases.put("gmail"); phrases.put("yahoo"); phrases.put("outlook");
                 phrases.put("at"); phrases.put("dot"); phrases.put("com");
                 phrases.put("ph"); phrases.put("edu"); phrases.put("net");
+                for (String name : NAME_PHRASE_BOOST) phrases.put(name);
                 speechContext.put("phrases", phrases);
                 speechContext.put("boost", 20);
                 config.put("speechContexts", new JSONArray().put(speechContext));
@@ -318,13 +329,9 @@ public class GoogleSttManager {
 
                 JSONObject speechContext = new JSONObject();
                 JSONArray phrases = new JSONArray();
-                phrases.put("jerome"); phrases.put("dela pena"); phrases.put("santos");
-                phrases.put("reyes"); phrases.put("garcia"); phrases.put("cruz");
-                phrases.put("bautista"); phrases.put("gonzales"); phrases.put("ramos");
-                phrases.put("mendoza"); phrases.put("torres"); phrases.put("flores");
-                phrases.put("villanueva"); phrases.put("aquino"); phrases.put("castillo");
+                for (String name : NAME_PHRASE_BOOST) phrases.put(name);
                 speechContext.put("phrases", phrases);
-                speechContext.put("boost", 15);
+                speechContext.put("boost", 20);
                 config.put("speechContexts", new JSONArray().put(speechContext));
             }
 
