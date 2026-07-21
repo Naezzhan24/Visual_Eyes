@@ -242,7 +242,7 @@ public class LoginActivity extends AppCompatActivity {
         speechIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
         speechIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
 
-        speechIntent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
+        speechIntent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false);
         speechIntent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName());
         speechIntent.putExtra(RecognizerIntent.EXTRA_BIASING_STRINGS,
                 new ArrayList<>(Arrays.asList(GoogleSttManager.NAME_PHRASE_BOOST)));

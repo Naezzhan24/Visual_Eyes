@@ -155,7 +155,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
         speechIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
         speechIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 8);
 
-        speechIntent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
+        speechIntent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false);
         speechIntent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName());
         speechIntent.putExtra(
                 RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1800L);
