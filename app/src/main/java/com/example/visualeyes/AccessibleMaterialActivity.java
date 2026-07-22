@@ -1371,26 +1371,13 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         for (TextView tv : bodyTextViews) tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, size);
         for (TextView tv : captionTextViews) tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(12, size - 6));
 
-        if (txtReaderTitle != null)
-            txtReaderTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, size + 2);
-        if (txtReaderInfo != null) {
+        // Only the extracted PDF text scales with the slider; the reader chrome
+        // (title, labels, hint, buttons) keeps its fixed layout size so it doesn't
+        // clip or become unreadable at the extremes of the size range.
+        if (txtReaderInfo != null)
             txtReaderInfo.setText("Impairment: " + impairmentLevel + " • Text: " + size + "sp");
-            txtReaderInfo.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(12, size - 4));
-        }
-        if (txtCurrentSize != null) {
+        if (txtCurrentSize != null)
             txtCurrentSize.setText("Text Size: " + size + "sp");
-            txtCurrentSize.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(12, size - 4));
-        }
-        if (txtVoiceStatus != null)
-            txtVoiceStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(12, size - 6));
-        if (txtAdjustTextSizeLabel != null)
-            txtAdjustTextSizeLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(12, size - 8));
-        if (txtVoiceHint != null)
-            txtVoiceHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(11, size - 10));
-        if (btnDecreaseText != null)
-            btnDecreaseText.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(14, size - 4));
-        if (btnIncreaseText != null)
-            btnIncreaseText.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(14, size - 4));
         if (seekTextSize != null) {
             int prog = Math.max(0, Math.min(size - MIN_TEXT_SIZE, seekTextSize.getMax()));
             seekTextSize.setProgress(prog);
