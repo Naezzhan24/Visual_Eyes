@@ -36,7 +36,6 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.cardview.widget.CardView;
 import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
 
 import com.tom_roush.pdfbox.pdmodel.PDDocument;
 import com.tom_roush.pdfbox.pdmodel.font.PDFont;
@@ -53,9 +52,12 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class AccessibleMaterialActivity extends AppCompatActivity implements TextToSpeech.OnInitListener {
 
@@ -63,7 +65,22 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private static final int MIN_TEXT_SIZE = 14;
     private static final int MAX_TEXT_SIZE = 34;
 
+    // Hints the built-in recognizer toward this screen's actual reading-mode
+    // vocabulary (English + Tagalog) instead of leaving it to guess freely.
+    private static final String[] COMMAND_PHRASE_BOOST = {
+            "yes", "start reading", "start", "begin", "go", "opo", "sige",
+            "no", "stop", "pause", "ayoko",
+            "restart", "from the beginning", "muli",
+            "instruction", "repeat", "help", "guide", "ulit",
+            "back", "return", "balik",
+            "increase text", "bigger text", "larger text", "lakihan", "palakihin",
+            "decrease text", "smaller text", "reduce text", "liitan", "paliitin",
+            "faster", "increase speed", "speed up", "bilisan",
+            "slower", "decrease speed", "slow down", "bagalan"
+    };
+
     private TextView txtVoiceStatus, txtReaderTitle, txtReaderInfo, txtReaderContent, txtCurrentSize;
+    private TextView txtAdjustTextSizeLabel, txtVoiceHint;
     private ScrollView scrollView;
     private LinearLayout contentContainer;
     private ImageView btnBack;
@@ -102,6 +119,23 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private float speechRate = 0.85f;
     private float startY     = 0f;
 
+    private android.view.ScaleGestureDetector scaleGestureDetector;
+    private android.view.GestureDetector      doubleTapDetector;
+    private View zoomTarget;
+    private float currentZoomScale = 1.0f;
+    private static final float MIN_ZOOM_SCALE = 1.0f;
+    private static final float MAX_ZOOM_SCALE = 3.0f;
+
+    // Two-finger touches on the reader are ambiguous between "pinch to zoom" and
+    // the existing vertical swipe for reading speed — decided once per gesture by
+    // whichever movement (finger-distance vs. shared vertical drag) crosses this
+    // threshold first, so a gesture can't do both at once.
+    private enum TwoFingerMode { UNDECIDED, PINCH, SWIPE }
+    private TwoFingerMode twoFingerMode = TwoFingerMode.UNDECIDED;
+    private float twoFingerStartDistance = 0f;
+    private float twoFingerStartAvgY     = 0f;
+    private static final float GESTURE_DECISION_THRESHOLD_PX = 24f;
+
     private final Runnable restartListeningRunnable = this::startListeningSafe;
     private final Runnable nextChunkRunnable        = this::readNextChunk;
 
@@ -120,6 +154,8 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         txtReaderInfo   = findViewById(R.id.txtReaderInfo);
         txtReaderContent= findViewById(R.id.txtReaderContent);
         txtCurrentSize  = findViewById(R.id.txtCurrentSize);
+        txtAdjustTextSizeLabel = findViewById(R.id.txtAdjustTextSizeLabel);
+        txtVoiceHint    = findViewById(R.id.txtVoiceHint);
         scrollView      = findViewById(R.id.scrollView);
         contentContainer= findViewById(R.id.contentContainer);
         btnBack         = findViewById(R.id.btnBack);
@@ -150,7 +186,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
 
         setupTextSizeControls();
         applyTextSize(recommendedTextSize, false);
-        setupTwoFingerSpeedControl();
+        setupGestures();
 
         if (btnBack != null) btnBack.setOnClickListener(v -> handleBackAction());
 
@@ -315,8 +351,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
                 }
 
                 if (!location.startsWith("http")) {
-                    URL base = new URL(urlString);
-                    location = base.getProtocol() + "://" + base.getHost() + location;
+                    location = new URL(new URL(urlString), location).toString();
                 }
                 urlString = location;
                 continue;
@@ -405,6 +440,18 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         return bodySize * 1.2f;
     }
 
+    /** Builds a regex that matches {@code needle} against a haystack while tolerating
+     *  differences in whitespace (runs of whitespace in the needle become {@code \s+}). */
+    private static Pattern whitespaceTolerantPattern(String needle) {
+        String[] tokens = needle.trim().split("\\s+");
+        StringBuilder regex = new StringBuilder();
+        for (int i = 0; i < tokens.length; i++) {
+            if (i > 0) regex.append("\\s+");
+            regex.append(Pattern.quote(tokens[i]));
+        }
+        return Pattern.compile(regex.toString());
+    }
+
     /**
      * Applies bold/heading spans to a single chunk of text, consuming style runs
      * from {@code runs} starting at {@code runIndexHolder[0]}. Runs that don't match
@@ -424,9 +471,14 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
             String needle = run.text;
             if (needle == null || needle.trim().isEmpty()) { runIndexHolder[0]++; continue; }
 
-            int start = chunkText.indexOf(needle, cursor);
-            if (start < 0) break;
-            int end = start + needle.length();
+            // needle is raw PDFBox text; chunkText has been whitespace-normalized by
+            // cleanText(). Match tolerating whitespace differences so one run's raw
+            // spacing can't cause indexOf to miss and permanently stall styling for
+            // every later chunk.
+            Matcher matcher = whitespaceTolerantPattern(needle).matcher(chunkText);
+            if (!matcher.find(cursor)) break;
+            int start = matcher.start();
+            int end   = matcher.end();
 
             boolean isHeading = run.fontSize >= headingThreshold;
             if (run.bold || isHeading) {
@@ -469,14 +521,55 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private static class ImageWithCaption {
         final Bitmap bitmap;
         String caption;
+        String leadingText  = "";
+        String trailingText = "";
         ImageWithCaption(Bitmap bitmap, String caption) {
             this.bitmap = bitmap; this.caption = caption;
         }
     }
 
+    private static class CaptionSpan {
+        int    endChunkIndex;
+        String captionText;
+        String leadingText;
+        String trailingText;
+    }
+
     private static final float CAPTION_MAX_GAP_PT      = 40f;
     private static final float CAPTION_CONTINUE_GAP_PT = 20f;
     private static final int   CAPTION_MAX_CHARS       = 400;
+    private static final int   MAX_CAPTION_SPAN_CHUNKS  = 5;
+
+    /**
+     * Grows the caption match forward from {@code startIndex} across as many
+     * following chunks as needed for their concatenation to actually contain
+     * {@code caption} (findCaption() assembles caption text purely by vertical
+     * position, so it can span more text than a single chunk holds). Stops as soon
+     * as a match is found, so any leftover text before the match belongs only to
+     * the first chunk and any leftover after it belongs only to the last chunk in
+     * the span — safe to split out as leading/trailing body text.
+     */
+    private CaptionSpan growCaptionSpan(List<String> chunks, boolean[] consumed, int startIndex, String caption) {
+        Pattern pattern = whitespaceTolerantPattern(caption);
+        StringBuilder combined = new StringBuilder();
+
+        for (int k = startIndex; k < chunks.size() && (k - startIndex) < MAX_CAPTION_SPAN_CHUNKS; k++) {
+            if (k != startIndex && consumed[k]) break;
+            if (combined.length() > 0) combined.append(' ');
+            combined.append(chunks.get(k));
+
+            Matcher m = pattern.matcher(combined);
+            if (m.find()) {
+                CaptionSpan span = new CaptionSpan();
+                span.endChunkIndex = k;
+                span.captionText   = combined.substring(m.start(), m.end()).trim();
+                span.leadingText   = combined.substring(0, m.start()).trim();
+                span.trailingText  = combined.substring(m.end()).trim();
+                return span;
+            }
+        }
+        return null;
+    }
 
     /**
      * Finds the text immediately below an image on the same page (within a small
@@ -583,8 +676,26 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
                 }
             }
             if (matchIndex >= 0) {
-                consumed[matchIndex] = true;
-                iwc.caption = chunks.get(matchIndex).trim();
+                // findCaption() walks style runs purely by vertical position, so the
+                // caption it assembled can span more text than fits in one
+                // splitIntoSmartChunks() chunk. Grow the match across as many
+                // following chunks as needed to actually cover the caption text,
+                // consuming only those chunks — never the single matched chunk alone
+                // when the caption doesn't fit inside it.
+                CaptionSpan span = growCaptionSpan(chunks, consumed, matchIndex, iwc.caption);
+                if (span != null) {
+                    for (int k = matchIndex; k <= span.endChunkIndex; k++) consumed[k] = true;
+                    iwc.caption      = span.captionText;
+                    iwc.leadingText  = span.leadingText;
+                    iwc.trailingText = span.trailingText;
+                } else {
+                    // Couldn't resolve exactly which chunks the caption spans — leave
+                    // every chunk unconsumed so no body text is silently dropped, even
+                    // though the caption text may then also be read once more as a
+                    // normal paragraph (rare edge case, e.g. non-whitespace text
+                    // differences between the raw PDF runs and the cleaned chunks).
+                    iwc.caption = iwc.caption.trim();
+                }
                 insertBefore.computeIfAbsent(matchIndex, k -> new ArrayList<>()).add(iwc);
             } else {
                 unmatched.add(iwc);
@@ -595,7 +706,11 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         for (int j = 0; j < chunks.size(); j++) {
             List<ImageWithCaption> before = insertBefore.get(j);
             if (before != null) {
-                for (ImageWithCaption iwc : before) blocks.add(ReaderBlock.image(iwc.bitmap, iwc.caption));
+                for (ImageWithCaption iwc : before) {
+                    if (!iwc.leadingText.isEmpty())  blocks.add(ReaderBlock.text(iwc.leadingText));
+                    blocks.add(ReaderBlock.image(iwc.bitmap, iwc.caption));
+                    if (!iwc.trailingText.isEmpty()) blocks.add(ReaderBlock.text(iwc.trailingText));
+                }
             }
             CharSequence styled = styleChunkText(chunks.get(j), runs, runIndex, headingThreshold);
             if (!consumed[j]) {
@@ -735,6 +850,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
                 "Say increase text or decrease text to adjust the font size. " +
                 "Say faster or slower to change reading speed. " +
                 "Say instruction to hear this guide again. " +
+                "Say feedback to leave feedback on this material. " +
                 "Say back to return to the materials screen.";
 
         tts.stop();
@@ -767,9 +883,16 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         speechIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         speechIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        speechIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE,       "en-US");
-        speechIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
-        speechIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,     5);
+        speechIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE,            "en-US");
+        speechIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "en-US");
+        speechIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS,     true);
+        speechIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,         5);
+        speechIntent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE,      false);
+        speechIntent.putExtra(RecognizerIntent.EXTRA_BIASING_STRINGS,
+                new ArrayList<>(Arrays.asList(COMMAND_PHRASE_BOOST)));
+        speechIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,          1500L);
+        speechIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L);
+        speechIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS,                   800L);
 
         speechRecognizer.setRecognitionListener(new RecognitionListener() {
             @Override public void onReadyForSpeech(Bundle p) {
@@ -833,19 +956,26 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     }
 
     private void checkMicPermission() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                == PackageManager.PERMISSION_GRANTED) {
+        if (MicPermissionHelper.hasAudioPermission(this)) {
             setVoiceStatus("Voice: microphone ready");
-        } else {
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.RECORD_AUDIO}, REQ_RECORD_AUDIO);
+            return;
         }
+        if (MicPermissionHelper.isPermanentlyDenied(this)) {
+            setVoiceStatus("Voice: microphone access blocked in Settings");
+            return;
+        }
+        if (MicPermissionHelper.isScreenReaderActive(this)) {
+            setVoiceStatus("Voice: microphone permission needed");
+            return;
+        }
+        MicPermissionHelper.markRequested(this);
+        ActivityCompat.requestPermissions(this,
+                new String[]{Manifest.permission.RECORD_AUDIO}, REQ_RECORD_AUDIO);
     }
 
     private void startListeningSafe() {
         if (isListening || isTtsSpeaking) return;
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
+        if (!MicPermissionHelper.hasAudioPermission(this)) {
             setVoiceStatus("Voice: microphone permission missing");
             return;
         }
@@ -859,51 +989,60 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private void startVoskListening() {
         if (isListening || isTtsSpeaking) return;
         isListening = true;
-        setVoiceStatus("Voice: listening...");
+        setVoiceStatus("Get ready...");
 
-        boolean useWhisper = NetworkUtils.hasInternet(this);
-        hybridSpeech.startListening(new HybridSpeechManager.HybridSpeechCallback() {
-            @Override public void onListeningStarted() {  }
+        AudioCue.playThen(handler, () -> {
+            if (!isListening) return;
+            setVoiceStatus("Voice: listening...");
 
-            @Override public void onPartialResult(String partial) {
-                setVoiceStatus("Hearing: " + partial);
-            }
+            boolean useWhisper = NetworkUtils.hasInternet(this);
+            hybridSpeech.startListening(new HybridSpeechManager.HybridSpeechCallback() {
+                @Override public void onListeningStarted() {  }
 
-            @Override public void onFinalResult(String transcript) {
-                isListening = false;
-                if (transcript != null && !transcript.trim().isEmpty()) {
-                    handleCommand(transcript);
+                @Override public void onPartialResult(String partial) {
+                    setVoiceStatus("Hearing: " + partial);
                 }
-                if (!isTtsSpeaking) restartListeningDelayed(800);
-            }
 
-            @Override public void onError(String message) {
-                isListening = false;
-                Log.e("Reader_STT", "Vosk failed (" + message + "), falling back to raw recognizer.");
-                startRawAndroidListening();
-            }
-        }, useWhisper, null);
+                @Override public void onFinalResult(String transcript) {
+                    isListening = false;
+                    if (transcript != null && !transcript.trim().isEmpty()) {
+                        handleCommand(transcript);
+                    }
+                    if (!isTtsSpeaking) restartListeningDelayed(800);
+                }
 
-        handler.postDelayed(() -> {
-            if (isListening) hybridSpeech.stopAndTranscribe();
-        }, VOSK_LISTEN_TIMEOUT_MS);
+                @Override public void onError(String message) {
+                    isListening = false;
+                    Log.e("Reader_STT", "Vosk failed (" + message + "), falling back to raw recognizer.");
+                    startRawAndroidListening();
+                }
+            }, useWhisper, null);
+
+            handler.postDelayed(() -> {
+                if (isListening) hybridSpeech.stopAndTranscribe();
+            }, VOSK_LISTEN_TIMEOUT_MS);
+        });
     }
 
     private void startRawAndroidListening() {
         if (!recognizerReady || speechRecognizer == null || speechIntent == null) return;
         if (isListening || isTtsSpeaking) return;
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
+        if (!MicPermissionHelper.hasAudioPermission(this)) {
             setVoiceStatus("Voice: microphone permission missing");
             return;
         }
         try {
             speechRecognizer.cancel();
-            handler.postDelayed(() -> {
-                try {
-                    if (speechRecognizer != null) speechRecognizer.startListening(speechIntent);
-                } catch (Exception e) { isListening = false; }
-            }, 250);
+            isListening = true;
+            setVoiceStatus("Get ready...");
+            AudioCue.playThen(handler, () -> {
+                if (!isListening) return;
+                handler.postDelayed(() -> {
+                    try {
+                        if (speechRecognizer != null) speechRecognizer.startListening(speechIntent);
+                    } catch (Exception e) { isListening = false; }
+                }, 250);
+            });
         } catch (Exception e) { isListening = false; }
     }
 
@@ -927,6 +1066,8 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
 
         if (isInstructionCommand(cmd))  { speakInstructionsAndAsk(); return; }
         if (isBackCommand(cmd))         { handleBackAction();         return; }
+        if (isRestartCommand(cmd))      { startReading();    return; }
+        if (isFeedbackCommand(cmd))     { openFeedback();     return; }
 
         if (isYesCommand(cmd)) {
             if (!materialLoaded) {
@@ -955,7 +1096,6 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
             return;
         }
 
-        if (isRestartCommand(cmd))      { startReading();    return; }
         if (isIncreaseTextCommand(cmd)) { increaseTextSize(); return; }
         if (isDecreaseTextCommand(cmd)) { decreaseTextSize(); return; }
         if (isFasterCommand(cmd))       { increaseSpeed();    return; }
@@ -982,6 +1122,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     }
 
     private boolean isYesCommand(String c) {
+        if (c.contains("restart") || c.contains("beginning")) return false;
         return c.equals("yes") || c.contains("start reading") || c.contains("start")
                 || c.contains("begin") || c.equals("go") || c.equals("opo") || c.contains("sige");
     }
@@ -997,6 +1138,9 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     }
     private boolean isBackCommand(String c) {
         return c.contains("back") || c.contains("return") || c.contains("balik");
+    }
+    private boolean isFeedbackCommand(String c) {
+        return c.contains("feedback") || c.contains("puna") || c.contains("komento");
     }
     private boolean isIncreaseTextCommand(String c) {
         return c.contains("increase text") || c.contains("bigger text") || c.contains("larger text")
@@ -1112,24 +1256,91 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         else setVoiceStatus("Speed down — applies next sentence");
     }
 
-    private void setupTwoFingerSpeedControl() {
+    /**
+     * Reading content only (not the whole activity root — buttons/controls must
+     * never be scaled or pushed off screen), pinch-zoomed via scaleGestureDetector,
+     * with a double-tap reset back to 1.0x since a low-vision user may not be able
+     * to reliably reverse a pinch. Two-finger touches are disambiguated between
+     * pinch-zoom and the existing vertical-swipe speed control so a single gesture
+     * can't trigger both.
+     */
+    private void setupGestures() {
+        zoomTarget = contentContainer;
+
+        scaleGestureDetector = new android.view.ScaleGestureDetector(this,
+                new android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                    @Override
+                    public boolean onScale(android.view.ScaleGestureDetector detector) {
+                        if (twoFingerMode != TwoFingerMode.PINCH || zoomTarget == null) return true;
+                        currentZoomScale *= detector.getScaleFactor();
+                        currentZoomScale = Math.max(MIN_ZOOM_SCALE, Math.min(currentZoomScale, MAX_ZOOM_SCALE));
+                        if (currentZoomScale < 1.05f) currentZoomScale = 1.0f;
+                        zoomTarget.setPivotX(detector.getFocusX());
+                        zoomTarget.setPivotY(detector.getFocusY());
+                        zoomTarget.setScaleX(currentZoomScale);
+                        zoomTarget.setScaleY(currentZoomScale);
+                        return true;
+                    }
+                });
+
+        doubleTapDetector = new android.view.GestureDetector(this,
+                new android.view.GestureDetector.SimpleOnGestureListener() {
+                    @Override
+                    public boolean onDoubleTap(MotionEvent e) {
+                        if (zoomTarget == null) return true;
+                        currentZoomScale = 1.0f;
+                        zoomTarget.setScaleX(1f);
+                        zoomTarget.setScaleY(1f);
+                        return true;
+                    }
+                });
+
         scrollView.setOnTouchListener((v, event) -> {
-            if (event.getPointerCount() != 2) return false;
+            doubleTapDetector.onTouchEvent(event);
+            scaleGestureDetector.onTouchEvent(event);
+
+            if (event.getPointerCount() != 2) {
+                twoFingerMode = TwoFingerMode.UNDECIDED;
+                return false;
+            }
+
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_POINTER_DOWN:
                 case MotionEvent.ACTION_DOWN:
                     startY = event.getY();
+                    twoFingerStartDistance = twoFingerDistance(event);
+                    twoFingerStartAvgY     = twoFingerAvgY(event);
+                    twoFingerMode = TwoFingerMode.UNDECIDED;
                     return true;
                 case MotionEvent.ACTION_MOVE:
-                    float diff = event.getY() - startY;
-                    if (Math.abs(diff) > 150) {
-                        if (diff < 0) increaseSpeed(); else decreaseSpeed();
-                        startY = event.getY();
+                    if (twoFingerMode == TwoFingerMode.UNDECIDED) {
+                        float distDelta = Math.abs(twoFingerDistance(event) - twoFingerStartDistance);
+                        float yDelta     = Math.abs(twoFingerAvgY(event) - twoFingerStartAvgY);
+                        if (distDelta > GESTURE_DECISION_THRESHOLD_PX || yDelta > GESTURE_DECISION_THRESHOLD_PX) {
+                            twoFingerMode = (distDelta >= yDelta) ? TwoFingerMode.PINCH : TwoFingerMode.SWIPE;
+                        }
+                    }
+                    if (twoFingerMode == TwoFingerMode.SWIPE) {
+                        float diff = event.getY() - startY;
+                        if (Math.abs(diff) > 150) {
+                            if (diff < 0) increaseSpeed(); else decreaseSpeed();
+                            startY = event.getY();
+                        }
                     }
                     return true;
                 default: return true;
             }
         });
+    }
+
+    private static float twoFingerDistance(MotionEvent event) {
+        float dx = event.getX(0) - event.getX(1);
+        float dy = event.getY(0) - event.getY(1);
+        return (float) Math.sqrt(dx * dx + dy * dy);
+    }
+
+    private static float twoFingerAvgY(MotionEvent event) {
+        return (event.getY(0) + event.getY(1)) / 2f;
     }
 
     private void setupTextSizeControls() {
@@ -1166,8 +1377,20 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
             txtReaderInfo.setText("Impairment: " + impairmentLevel + " • Text: " + size + "sp");
             txtReaderInfo.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(12, size - 4));
         }
-        if (txtCurrentSize != null)
+        if (txtCurrentSize != null) {
             txtCurrentSize.setText("Text Size: " + size + "sp");
+            txtCurrentSize.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(12, size - 4));
+        }
+        if (txtVoiceStatus != null)
+            txtVoiceStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(12, size - 6));
+        if (txtAdjustTextSizeLabel != null)
+            txtAdjustTextSizeLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(12, size - 8));
+        if (txtVoiceHint != null)
+            txtVoiceHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(11, size - 10));
+        if (btnDecreaseText != null)
+            btnDecreaseText.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(14, size - 4));
+        if (btnIncreaseText != null)
+            btnIncreaseText.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(14, size - 4));
         if (seekTextSize != null) {
             int prog = Math.max(0, Math.min(size - MIN_TEXT_SIZE, seekTextSize.getMax()));
             seekTextSize.setProgress(prog);
