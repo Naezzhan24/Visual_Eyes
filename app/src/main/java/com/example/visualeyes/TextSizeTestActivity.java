@@ -18,7 +18,6 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
 
 import com.android.volley.DefaultRetryPolicy;
 import com.android.volley.Request;
@@ -122,7 +121,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
         assignedWords      = pickWordsFromTiers(activeWordTiers);
 
         googleTts = new GoogleTtsManager(this);
-        googleStt = new GoogleSttManager();
+        googleStt = new GoogleSttManager(this);
         buildSpeechIntent();
 
         showCurrentItem(false);
@@ -856,11 +855,19 @@ public class TextSizeTestActivity extends AppCompatActivity {
     }
 
     private boolean hasAudioPermission() {
-        return ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                == PackageManager.PERMISSION_GRANTED;
+        return MicPermissionHelper.hasAudioPermission(this);
     }
 
     private void requestAudioPermission() {
+        if (MicPermissionHelper.isPermanentlyDenied(this)) {
+            setStatus("Microphone access blocked. Enable it in Settings for voice commands.");
+            return;
+        }
+        if (MicPermissionHelper.isScreenReaderActive(this)) {
+            setStatus("Microphone permission needed for voice commands.");
+            return;
+        }
+        MicPermissionHelper.markRequested(this);
         ActivityCompat.requestPermissions(this,
                 new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_RECORD_AUDIO);
     }

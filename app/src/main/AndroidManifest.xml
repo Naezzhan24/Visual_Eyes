@@ -56,7 +56,6 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.VisualEyes"
-        android:usesCleartextTraffic="true"
         tools:targetApi="31">
 
         <!-- LOGIN = ENTRY POINT -->
@@ -91,18 +90,6 @@
         <activity
             android:name=".TextSizeTestActivity"
             android:exported="false" />
-
-        <!-- Voice pipeline test-drive — see chat / SETUP_GUIDE.md in
-             Downloads/visualed-voice-pipeline. Not linked from any real
-             screen yet. TEMPORARILY exported="true" so `adb shell am start`
-             can launch them directly for testing — set back to false before
-             any real release. -->
-        <activity
-            android:name=".VoiceRegistrationTestActivity"
-            android:exported="true" />
-        <activity
-            android:name=".VoiceLoginTestActivity"
-            android:exported="true" />
 
         <!-- MAIN APP -->
         <activity
