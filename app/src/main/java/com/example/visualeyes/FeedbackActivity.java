@@ -18,11 +18,11 @@ import android.widget.RatingBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.cardview.widget.CardView;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
 
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
@@ -54,12 +54,16 @@ public class FeedbackActivity extends AppCompatActivity {
     private Intent              speechIntent;
     private boolean             isListening = false;
     private static final long VOSK_LISTEN_TIMEOUT_MS = 6000L;
+    private static final int  REQUEST_RECORD_AUDIO    = 100;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private RequestQueue requestQueue;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_feedback);
+
+        requestQueue = Volley.newRequestQueue(getApplicationContext());
 
         btnBack               = findViewById(R.id.btnBack);
         ratingBarFeedback     = findViewById(R.id.ratingBarFeedback);
@@ -144,10 +148,17 @@ public class FeedbackActivity extends AppCompatActivity {
     }
 
     private void startVoiceInput() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
+        if (!MicPermissionHelper.hasAudioPermission(this)) {
+            if (MicPermissionHelper.isPermanentlyDenied(this)) {
+                Toast.makeText(this, "Microphone access is blocked. Enable it in Settings.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            // No screen-reader gate here: startVoiceInput() only ever runs from an
+            // explicit tap on a voice button, never automatically, so it's safe to
+            // prompt even with TalkBack active (see isScreenReaderActive() doc).
+            MicPermissionHelper.markRequested(this);
             ActivityCompat.requestPermissions(
-                    this, new String[]{Manifest.permission.RECORD_AUDIO}, 100);
+                    this, new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_RECORD_AUDIO);
             return;
         }
         if (isListening) return;
@@ -163,28 +174,32 @@ public class FeedbackActivity extends AppCompatActivity {
         final EditText targetField = activeVoiceField;
         if (targetField == null) return;
         isListening = true;
-        Toast.makeText(this, "Listening...", Toast.LENGTH_SHORT).show();
 
-        boolean useWhisper = NetworkUtils.hasInternet(this);
-        hybridSpeech.startListening(new HybridSpeechManager.HybridSpeechCallback() {
-            @Override public void onListeningStarted() {}
-            @Override public void onPartialResult(String partial) {}
+        AudioCue.playThen(handler, () -> {
+            if (!isListening) return;
+            Toast.makeText(this, "Listening...", Toast.LENGTH_SHORT).show();
 
-            @Override public void onFinalResult(String transcript) {
-                isListening = false;
-                appendSpokenText(targetField, transcript);
-            }
+            boolean useWhisper = NetworkUtils.hasInternet(this);
+            hybridSpeech.startListening(new HybridSpeechManager.HybridSpeechCallback() {
+                @Override public void onListeningStarted() {}
+                @Override public void onPartialResult(String partial) {}
 
-            @Override public void onError(String message) {
-                isListening = false;
-                Log.e("Feedback_STT", "Vosk failed (" + message + "), falling back to raw recognizer.");
-                startRawVoiceInput();
-            }
-        }, useWhisper, "feedback");
+                @Override public void onFinalResult(String transcript) {
+                    isListening = false;
+                    appendSpokenText(targetField, transcript);
+                }
 
-        handler.postDelayed(() -> {
-            if (isListening) hybridSpeech.stopAndTranscribe();
-        }, VOSK_LISTEN_TIMEOUT_MS);
+                @Override public void onError(String message) {
+                    isListening = false;
+                    Log.e("Feedback_STT", "Vosk failed (" + message + "), falling back to raw recognizer.");
+                    startRawVoiceInput();
+                }
+            }, useWhisper, "feedback");
+
+            handler.postDelayed(() -> {
+                if (isListening) hybridSpeech.stopAndTranscribe();
+            }, VOSK_LISTEN_TIMEOUT_MS);
+        });
     }
 
     private void startRawVoiceInput() {
@@ -223,8 +238,16 @@ public class FeedbackActivity extends AppCompatActivity {
 
         try {
             isListening = true;
-            Toast.makeText(this, "Listening...", Toast.LENGTH_SHORT).show();
-            speechRecognizer.startListening(speechIntent);
+            AudioCue.playThen(handler, () -> {
+                if (!isListening) return;
+                try {
+                    Toast.makeText(this, "Listening...", Toast.LENGTH_SHORT).show();
+                    speechRecognizer.startListening(speechIntent);
+                } catch (Exception e) {
+                    isListening = false;
+                    Toast.makeText(this, "Speech recognition is not available.", Toast.LENGTH_SHORT).show();
+                }
+            });
         } catch (Exception e) {
             isListening = false;
             Toast.makeText(this, "Speech recognition is not available.", Toast.LENGTH_SHORT).show();
@@ -288,8 +311,6 @@ public class FeedbackActivity extends AppCompatActivity {
         btnSubmit.setText("Sending...");
         final String bodyStr = body.toString();
 
-        RequestQueue queue = Volley.newRequestQueue(this);
-
         StringRequest request = new StringRequest(
                 Request.Method.POST,
                 ApiConfig.MATERIAL_FEEDBACKS,
@@ -335,7 +356,8 @@ public class FeedbackActivity extends AppCompatActivity {
             }
         };
 
-        queue.add(request);
+        request.setTag(this);
+        requestQueue.add(request);
     }
 
     @Override
@@ -343,6 +365,21 @@ public class FeedbackActivity extends AppCompatActivity {
         handler.removeCallbacksAndMessages(null);
         if (hybridSpeech != null) hybridSpeech.destroy();
         try { if (speechRecognizer != null) { speechRecognizer.cancel(); speechRecognizer.destroy(); } } catch (Exception ignored) {}
+        if (requestQueue != null) requestQueue.cancelAll(this);
         super.onDestroy();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode,
+                                            @NonNull String[] permissions,
+                                            @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_RECORD_AUDIO) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startVoiceInput();
+            } else {
+                Toast.makeText(this, "Microphone permission is required for voice input.", Toast.LENGTH_LONG).show();
+            }
+        }
     }
 }
