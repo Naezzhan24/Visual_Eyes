@@ -1,5 +1,6 @@
 package com.example.visualeyes;
 
+import android.Manifest;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
@@ -24,6 +25,8 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.cardview.widget.CardView;
 import androidx.drawerlayout.widget.DrawerLayout;
@@ -71,8 +74,7 @@ public class HomeActivity extends AppCompatActivity {
     private android.content.Intent speechIntent;
 
     private HybridSpeechManager hybridSpeech;
-    private static final long VOSK_LISTEN_TIMEOUT_MS = 6000L;
-    private static final long CLOUD_STT_SAFETY_TIMEOUT_MS = 11000L;
+    private SttCascadeSession   cascadeSession;
 
     private AuthManager authManager;
     private SharedPreferences prefs;
@@ -103,6 +105,30 @@ public class HomeActivity extends AppCompatActivity {
         }
     };
 
+    private final ActivityResultLauncher<String> micPermissionLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
+                if (granted) {
+                    updateVoiceStatus("Microphone enabled.");
+                    if (!isTtsSpeaking) scheduleListening(400);
+                } else {
+                    updateVoiceStatus("Microphone permission denied.");
+                }
+            });
+
+    private void checkMicPermission() {
+        if (MicPermissionHelper.hasAudioPermission(this)) return;
+        if (MicPermissionHelper.isPermanentlyDenied(this)) {
+            updateVoiceStatus("Microphone access blocked. Enable it in Settings for voice commands.");
+            return;
+        }
+        if (MicPermissionHelper.isScreenReaderActive(this)) {
+            updateVoiceStatus("Microphone permission needed for voice commands.");
+            return;
+        }
+        MicPermissionHelper.markRequested(this);
+        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -111,7 +137,7 @@ public class HomeActivity extends AppCompatActivity {
         authManager = new AuthManager(this);
         prefs       = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         googleTts   = new GoogleTtsManager(this);
-        googleStt   = new GoogleSttManager();
+        googleStt   = new GoogleSttManager(this);
 
         bindViews();
         applyFontSize();
@@ -132,6 +158,8 @@ public class HomeActivity extends AppCompatActivity {
         hybridSpeech.initVosk(
                 () -> Log.d("Home_STT", "Vosk model ready — now the primary listen engine."),
                 () -> Log.e("Home_STT", "Vosk model failed to load — using raw SpeechRecognizer only."));
+
+        cascadeSession = new SttCascadeSession(googleStt, hybridSpeech, handler, false);
         loadLatestMaterial();
         materialsDrawer.load();
 
@@ -266,6 +294,10 @@ public class HomeActivity extends AppCompatActivity {
 
     private void startListening() {
         if (isListening || isTtsSpeaking) return;
+        if (!MicPermissionHelper.hasAudioPermission(this)) {
+            checkMicPermission();
+            return;
+        }
         if (SpeechEngineHealth.isBuiltInRecognizerBroken(this)) {
             cascadeFromBuiltIn();
             return;
@@ -274,64 +306,14 @@ public class HomeActivity extends AppCompatActivity {
     }
 
     private void cascadeFromBuiltIn() {
-        if (NetworkUtils.hasInternet(this)) {
-            startCloudSttListening();
-        } else if (hybridSpeech != null && hybridSpeech.isReady()) {
-            startVoskListening();
-        } else if (!isTtsSpeaking) {
-            scheduleListening(1000);
-        }
-    }
-
-    private void startCloudSttListening() {
         if (isListening || isTtsSpeaking) return;
         isListening = true;
-        updateVoiceStatus("Listening...");
-        updateRecognizedText("Waiting for speech...");
 
-        final boolean[] stopTriggered = {false};
-        Runnable stopAndTranscribe = () -> {
-            if (stopTriggered[0] || !isListening) return;
-            stopTriggered[0] = true;
-            isListening = false;
-            updateVoiceStatus("Processing...");
-            googleStt.stopAndRecognize("command", new GoogleSttManager.SttCallback() {
-                @Override public void onResult(String transcript) {
-                    if (transcript != null && !transcript.trim().isEmpty()) {
-                        handleCommand(transcript.trim());
-                    } else {
-                        cascadeAfterCloudStt();
-                    }
-                }
-
-                @Override public void onError(String message) {
-                    Log.e("Home_STT", "Cloud STT failed (" + message + "), falling back to Vosk.");
-                    cascadeAfterCloudStt();
-                }
-            });
-        };
-
-        googleStt.startRecording(stopAndTranscribe::run);
-        handler.postDelayed(stopAndTranscribe, CLOUD_STT_SAFETY_TIMEOUT_MS);
-    }
-
-    private void cascadeAfterCloudStt() {
-        if (hybridSpeech != null && hybridSpeech.isReady()) {
-            startVoskListening();
-        } else if (!isTtsSpeaking) {
-            scheduleListening(1000);
-        }
-    }
-
-    private void startVoskListening() {
-        if (isListening || isTtsSpeaking) return;
-        isListening = true;
-        updateVoiceStatus("Listening...");
-        updateRecognizedText("Waiting for speech...");
-
-        boolean useWhisper = NetworkUtils.hasInternet(this);
-        hybridSpeech.startListening(new HybridSpeechManager.HybridSpeechCallback() {
-            @Override public void onListeningStarted() {  }
+        cascadeSession.cascade(this, "command", null, new SttCascadeSession.Listener() {
+            @Override public void onListeningStarted() {
+                updateVoiceStatus("Listening...");
+                updateRecognizedText("Waiting for speech...");
+            }
 
             @Override public void onPartialResult(String partial) {
                 updateRecognizedText("Hearing: " + partial);
@@ -343,25 +325,16 @@ public class HomeActivity extends AppCompatActivity {
                 }
             }
 
-            @Override public void onFinalResult(String transcript) {
+            @Override public void onTranscript(String transcript) {
                 isListening = false;
-                if (transcript != null && !transcript.trim().isEmpty()) {
-                    handleCommand(transcript.trim());
-                } else if (!isTtsSpeaking) {
-                    scheduleListening(800);
-                }
+                handleCommand(transcript);
             }
 
-            @Override public void onError(String message) {
+            @Override public void onExhausted() {
                 isListening = false;
-                Log.e("Home_STT", "Vosk failed (" + message + ") — all engines exhausted, retrying from the top.");
                 if (!isTtsSpeaking) scheduleListening(1000);
             }
-        }, useWhisper, null);
-
-        handler.postDelayed(() -> {
-            if (isListening) hybridSpeech.stopAndTranscribe();
-        }, VOSK_LISTEN_TIMEOUT_MS);
+        });
     }
 
     private void startRawAndroidListening() {
@@ -379,8 +352,7 @@ public class HomeActivity extends AppCompatActivity {
 
     private void stopListening() {
         isListening = false;
-        if (hybridSpeech != null) hybridSpeech.cancel();
-        if (googleStt != null) googleStt.cancel();
+        if (cascadeSession != null) cascadeSession.cancel();
         try { if (speechRecognizer != null) speechRecognizer.stopListening(); } catch (Exception ignored) {}
         try { if (speechRecognizer != null) speechRecognizer.cancel(); }        catch (Exception ignored) {}
     }
