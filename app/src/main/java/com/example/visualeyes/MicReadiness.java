@@ -33,7 +33,7 @@ public final class MicReadiness {
 
         AudioRecord probe = null;
         try {
-            probe = new AudioRecord(MediaRecorder.AudioSource.MIC, SAMPLE_RATE,
+            probe = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, minBuffer);
             return probe.getState() == AudioRecord.STATE_INITIALIZED;
         } catch (Exception e) {

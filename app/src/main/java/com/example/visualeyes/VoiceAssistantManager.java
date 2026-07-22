@@ -357,12 +357,15 @@ public class VoiceAssistantManager {
     }
 
     private String getBestCommand(ArrayList<String> matches) {
+        // RESULTS_RECOGNITION is ordered by descending confidence — take the
+        // first non-empty candidate instead of the longest one, which could
+        // pick a lower-confidence hallucinated alternative over the correct,
+        // shorter, top-ranked guess.
         if (matches == null || matches.isEmpty()) return "";
-        String best = "";
         for (String item : matches) {
-            if (item != null && item.length() > best.length()) best = item;
+            if (item != null && !item.trim().isEmpty()) return item.trim();
         }
-        return best.trim();
+        return "";
     }
 
     private boolean shouldIgnore(String command) {
