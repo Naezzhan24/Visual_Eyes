@@ -55,6 +55,7 @@ public class NameNormalizer {
     }
 
     public NormalizedResult normalize(String raw, FieldType type) {
+        if (raw == null || raw.trim().isEmpty()) return new NormalizedResult(raw == null ? "" : raw, 0f, false);
         String cleaned = NON_NAME_CHARS.matcher(raw.trim().toLowerCase(Locale.ROOT)).replaceAll("");
         if (cleaned.isEmpty()) return new NormalizedResult(raw, 0f, false);
 

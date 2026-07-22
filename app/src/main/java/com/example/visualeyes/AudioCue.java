@@ -12,15 +12,19 @@ public final class AudioCue {
     private AudioCue() {}
 
     public static void playThen(Handler handler, Runnable afterBeep) {
+        ToneGenerator toneGen = null;
         try {
-
-            ToneGenerator toneGen = new ToneGenerator(AudioManager.STREAM_MUSIC, BEEP_VOLUME);
+            toneGen = new ToneGenerator(AudioManager.STREAM_MUSIC, BEEP_VOLUME);
             toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, BEEP_DURATION_MS);
+            final ToneGenerator finalToneGen = toneGen;
             handler.postDelayed(() -> {
-                toneGen.release();
+                finalToneGen.release();
                 afterBeep.run();
             }, BEEP_DURATION_MS + GAP_AFTER_BEEP_MS);
         } catch (Exception e) {
+            if (toneGen != null) {
+                try { toneGen.release(); } catch (Exception ignored) {}
+            }
             afterBeep.run();
         }
     }

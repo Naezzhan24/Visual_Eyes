@@ -400,24 +400,30 @@ public class ProfileActivity extends AppCompatActivity {
         }
 
         if (cmd.contains("text to speech")) {
-            boolean turnOn = cmd.contains("turn on") || cmd.contains("enable");
+            boolean turnOn  = cmd.contains("turn on")  || cmd.contains("enable");
+            boolean turnOff = cmd.contains("turn off") || cmd.contains("disable");
             if (turnOn) {
                 if (!switchTts.isChecked()) { switchTts.setChecked(true); }
                 else speak("Text to speech is already enabled.", true);
-            } else {
+            } else if (turnOff) {
                 if (switchTts.isChecked()) { switchTts.setChecked(false); }
                 else scheduleListening(LISTEN_DELAY_AFTER_TTS);
+            } else {
+                speak("Say turn on or turn off text to speech.", true);
             }
             return;
         }
 
         if (cmd.contains("speech to text")) {
-            boolean turnOn = cmd.contains("turn on") || cmd.contains("enable");
+            boolean turnOn  = cmd.contains("turn on")  || cmd.contains("enable");
+            boolean turnOff = cmd.contains("turn off") || cmd.contains("disable");
             if (turnOn) {
                 if (!switchStt.isChecked()) { switchStt.setChecked(true); }
                 else speak("Speech to text is already enabled.", true);
-            } else {
+            } else if (turnOff) {
                 if (switchStt.isChecked()) { switchStt.setChecked(false); }
+            } else {
+                speak("Say turn on or turn off speech to text.", true);
             }
             return;
         }

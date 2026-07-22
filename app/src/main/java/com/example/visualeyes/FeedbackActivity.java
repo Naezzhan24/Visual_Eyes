@@ -77,15 +77,15 @@ public class FeedbackActivity extends AppCompatActivity {
         CardView cardRating     = findViewById(R.id.cardRating);
         CardView cardMaterial   = findViewById(R.id.cardMaterial);
         CardView cardInstructor = findViewById(R.id.cardInstructor);
-        UiAnim.popIn(cardRating, 60);
-        UiAnim.fadeSlideIn(cardMaterial, 140);
-        UiAnim.rotateFadeIn(cardInstructor, 220);
-        UiAnim.popIn(btnSubmit, 300);
+        if (cardRating     != null) UiAnim.popIn(cardRating, 60);
+        if (cardMaterial   != null) UiAnim.fadeSlideIn(cardMaterial, 140);
+        if (cardInstructor != null) UiAnim.rotateFadeIn(cardInstructor, 220);
+        if (btnSubmit       != null) UiAnim.popIn(btnSubmit, 300);
 
-        UiAnim.attachPressFeedback(btnBack);
-        UiAnim.attachPressFeedback(btnVoiceMaterial);
-        UiAnim.attachPressFeedback(btnVoiceInstructor);
-        UiAnim.attachPressFeedback(btnSubmit);
+        if (btnBack           != null) UiAnim.attachPressFeedback(btnBack);
+        if (btnVoiceMaterial  != null) UiAnim.attachPressFeedback(btnVoiceMaterial);
+        if (btnVoiceInstructor != null) UiAnim.attachPressFeedback(btnVoiceInstructor);
+        if (btnSubmit          != null) UiAnim.attachPressFeedback(btnSubmit);
 
         materialId = getIntent().getStringExtra("material_id");
 
@@ -98,14 +98,14 @@ public class FeedbackActivity extends AppCompatActivity {
                 () -> Log.d("Feedback_STT", "Vosk model ready — now the primary listen engine."),
                 () -> Log.e("Feedback_STT", "Vosk model failed to load — using raw SpeechRecognizer only."));
 
-        btnBack.setOnClickListener(v -> finish());
+        if (btnBack != null) btnBack.setOnClickListener(v -> finish());
 
-        btnVoiceMaterial.setOnClickListener(v -> {
+        if (btnVoiceMaterial != null) btnVoiceMaterial.setOnClickListener(v -> {
             activeVoiceField = txtMaterialFeedback;
             startVoiceInput();
         });
 
-        btnVoiceInstructor.setOnClickListener(v -> {
+        if (btnVoiceInstructor != null) btnVoiceInstructor.setOnClickListener(v -> {
             activeVoiceField = txtInstructorFeedback;
             startVoiceInput();
         });
@@ -135,7 +135,7 @@ public class FeedbackActivity extends AppCompatActivity {
             }
         });
 
-        btnSubmit.setOnClickListener(v -> submitFeedback());
+        if (btnSubmit != null) btnSubmit.setOnClickListener(v -> submitFeedback());
     }
 
     private void buildSpeechIntent() {

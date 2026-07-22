@@ -41,6 +41,7 @@ public class VoiceAssistantManager {
     private String lastSpokenText = "";
     private String lastCommand = "";
     private long lastCommandTime = 0L;
+    private boolean lastRequestedListenAfter = true;
 
     private static final long LISTEN_DELAY = 500L;
     private static final long LISTEN_DELAY_AFTER_TTS = 400L;
@@ -71,13 +72,15 @@ public class VoiceAssistantManager {
             @Override
             public void onStart(String utteranceId) {
                 isSpeaking = true;
-                stopListeningInternal();
+                // stopListeningInternal() touches SpeechRecognizer, which requires
+                // the main thread, but this callback isn't guaranteed to run there.
+                handler.post(() -> stopListeningInternal());
             }
 
             @Override
             public void onDone(String utteranceId) {
                 isSpeaking = false;
-                if (sttEnabled && isEnabled) {
+                if (lastRequestedListenAfter && sttEnabled && isEnabled) {
                     startListeningDelayed(LISTEN_DELAY_AFTER_TTS);
                 }
             }
@@ -85,7 +88,7 @@ public class VoiceAssistantManager {
             @Override
             public void onError(String utteranceId) {
                 isSpeaking = false;
-                if (sttEnabled && isEnabled) {
+                if (lastRequestedListenAfter && sttEnabled && isEnabled) {
                     startListeningDelayed(LISTEN_DELAY_AFTER_TTS);
                 }
             }
@@ -156,7 +159,7 @@ public class VoiceAssistantManager {
 
                 if (!isEnabled || !sttEnabled || isSpeaking) {
 
-                    if (sttEnabled && isEnabled && !isSpeaking) {
+                    if (isEnabled && sttEnabled && isSpeaking) {
                         startListeningDelayed(LISTEN_DELAY);
                     }
                     return;
@@ -209,6 +212,7 @@ public class VoiceAssistantManager {
         if (text == null) text = "";
 
         lastSpokenText = text;
+        lastRequestedListenAfter = listenAfter;
 
         stopListeningInternal();
 
