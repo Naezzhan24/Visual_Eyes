@@ -64,7 +64,7 @@ public class GoogleTtsManager {
     }
 
     public void speak(String text, float speakingRate, TtsCallback callback) {
-        if (text == null || text.isEmpty()) {
+        if (text == null || text.isEmpty() || !VoicePreferences.isTtsEnabled(context)) {
             if (callback != null) mainHandler.post(callback::onDone);
             return;
         }
@@ -75,7 +75,7 @@ public class GoogleTtsManager {
         executor.execute(() -> {
             try {
                 JSONObject input = new JSONObject();
-                input.put("text", text);
+                input.put("ssml", NumberSpeechFormatter.toSsml(text));
 
                 JSONObject voice = new JSONObject();
                 voice.put("languageCode", "en-US");
@@ -114,11 +114,11 @@ public class GoogleTtsManager {
                         }
                     }
                     Log.e(TAG, "Google TTS failed: " + response.code());
-                    fallbackToAndroidTts(text, callback, myGeneration);
+                    fallbackToAndroidTts(NumberSpeechFormatter.toPlainSpeech(text), callback, myGeneration);
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Google TTS error: " + e.getMessage());
-                fallbackToAndroidTts(text, callback, myGeneration);
+                fallbackToAndroidTts(NumberSpeechFormatter.toPlainSpeech(text), callback, myGeneration);
             }
         });
     }

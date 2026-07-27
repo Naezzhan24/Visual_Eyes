@@ -74,6 +74,10 @@ public class HybridSpeechManager {
      * @param fieldDescription unused, same reason as above.
      */
     public void startListening(HybridSpeechCallback cb, boolean useWhisper, String fieldDescription) {
+        if (!VoicePreferences.isSttEnabled(context)) {
+            cb.onError("Speech-to-Text is disabled.");
+            return;
+        }
         if (!isReady()) {
             cb.onError("Vosk model not loaded.");
             return;

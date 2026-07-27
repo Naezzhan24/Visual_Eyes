@@ -98,13 +98,6 @@ public class MaterialsActivity extends AppCompatActivity {
     private static final String KEY_LAST_OPENED_URL   = "last_opened_url";
     private static final int    RECORD_AUDIO_CODE     = 101;
 
-    private static final String MATERIALS_URL =
-            ApiConfig.MATERIALS +
-                    "?is_sent_to_app=eq.true" +
-                    "&admin_approval_status=eq.approved" +
-                    "&select=id,title,file_path,upload_date" +
-                    "&order=upload_date.desc";
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -115,8 +108,8 @@ public class MaterialsActivity extends AppCompatActivity {
         googleStt = new GoogleSttManager(this);
         hybridSpeech = new HybridSpeechManager(this);
         hybridSpeech.initVosk(
-                () -> Log.d("Materials_STT", "Vosk model ready — now the primary listen engine."),
-                () -> Log.e("Materials_STT", "Vosk model failed to load — using raw SpeechRecognizer only."));
+                () -> Log.d("Materials_STT", "Vosk model ready â now the primary listen engine."),
+                () -> Log.e("Materials_STT", "Vosk model failed to load â using raw SpeechRecognizer only."));
 
         cascadeSession = new SttCascadeSession(googleStt, hybridSpeech, handler, false);
 
@@ -242,7 +235,7 @@ public class MaterialsActivity extends AppCompatActivity {
                     default:
                         Log.e("Materials_STT", "Built-in recognizer onError code=" + error);
                         if (SpeechEngineHealth.isRecognizerIncompatible(error)) {
-                            Log.e("Materials_STT", "Built-in recognizer is not usable on this device — "
+                            Log.e("Materials_STT", "Built-in recognizer is not usable on this device â "
                                     + "skipping it from now on.");
                             SpeechEngineHealth.markBuiltInRecognizerBroken(MaterialsActivity.this);
                         }
@@ -596,8 +589,24 @@ public class MaterialsActivity extends AppCompatActivity {
     }
 
     private void loadMaterials() {
+        AuthManager authManager = new AuthManager(this);
+        String studentId = authManager.getStudentId();
+
+        if (studentId == null || studentId.trim().isEmpty()) {
+            if (txtFeaturedTitle != null) txtFeaturedTitle.setText("No learning material yet");
+            if (txtWelcome != null) txtWelcome.setText("Please log in again to view your materials.");
+            applyFontSize();
+            return;
+        }
+
+        String materialsUrl = ApiConfig.STUDENT_ACCESS
+                + "?student_id=eq." + android.net.Uri.encode(studentId)
+                + "&select=materials(id,title,file_path,upload_date,is_sent_to_app,admin_approval_status)"
+                + "&materials.is_sent_to_app=eq.true"
+                + "&materials.admin_approval_status=eq.approved";
+
         RequestQueue queue = Volley.newRequestQueue(this);
-        JsonArrayRequest req = new JsonArrayRequest(Request.Method.GET, MATERIALS_URL, null,
+        JsonArrayRequest req = new JsonArrayRequest(Request.Method.GET, materialsUrl, null,
                 response -> {
                     materialList.clear();
                     recentMaterialsContainer.removeAllViews();
@@ -610,7 +619,9 @@ public class MaterialsActivity extends AppCompatActivity {
                         }
                         if (txtWelcome != null) txtWelcome.setText("Welcome to your accessible learning materials.");
                         for (int i = 0; i < response.length(); i++) {
-                            JSONObject obj = response.getJSONObject(i);
+                            JSONObject row = response.getJSONObject(i);
+                            JSONObject obj = row.optJSONObject("materials");
+                            if (obj == null) continue;
                             materialList.add(new LearningMaterial(
                                     obj.optString("id",          ""),
                                     obj.optString("title",       "Untitled Material"),
@@ -775,17 +786,14 @@ public class MaterialsActivity extends AppCompatActivity {
 
     private void setupBottomNav() {
         if (navHome != null) navHome.setOnClickListener(v -> {
-            animateTabPress(navHome);
             speak("Opening home.", false);
             handler.postDelayed(this::goHome, 400);
         });
         if (navMaterials != null) navMaterials.setOnClickListener(v -> {
-            animateTabPress(navMaterials);
             setActiveNav("materials");
             speak("You are currently on the materials screen.", true);
         });
         if (navProfile != null) navProfile.setOnClickListener(v -> {
-            animateTabPress(navProfile);
             speak("Opening profile.", false);
             handler.postDelayed(this::goProfile, 400);
         });
@@ -803,23 +811,20 @@ public class MaterialsActivity extends AppCompatActivity {
     }
 
     private void setActiveNav(String tab) {
-        if (navHome == null || navMaterials == null || navProfile == null) return;
-        int inactive = 0xFF7A2F42, active = 0xFFFFFFFF;
-        navHome.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-        navMaterials.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-        navProfile.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        if (iconHome == null || iconMaterials == null || iconProfile == null) return;
+        int inactive = 0xFF8C4356, active = 0xFF2E0D18;
         iconHome.setColorFilter(inactive); iconMaterials.setColorFilter(inactive); iconProfile.setColorFilter(inactive);
         textHome.setTextColor(inactive);   textMaterials.setTextColor(inactive);   textProfile.setTextColor(inactive);
-        if ("home".equals(tab))      { navHome.setBackgroundResource(R.drawable.bg_nav_active);      iconHome.setColorFilter(active);      textHome.setTextColor(active); }
-        else if ("materials".equals(tab)) { navMaterials.setBackgroundResource(R.drawable.bg_nav_active); iconMaterials.setColorFilter(active); textMaterials.setTextColor(active); }
-        else if ("profile".equals(tab))   { navProfile.setBackgroundResource(R.drawable.bg_nav_active);  iconProfile.setColorFilter(active);   textProfile.setTextColor(active); }
+        if ("home".equals(tab))           { iconHome.setColorFilter(active);      textHome.setTextColor(active); }
+        else if ("materials".equals(tab)) { iconMaterials.setColorFilter(active); textMaterials.setTextColor(active); }
+        else if ("profile".equals(tab))   { iconProfile.setColorFilter(active);   textProfile.setTextColor(active); }
     }
 
     private void updateVoiceStatus(String text)   { runOnUiThread(() -> { if (txtVoiceStatus    != null) { txtVoiceStatus.setText(text);    pulseView(txtVoiceStatus); } }); }
     private void updateRecognizedText(String text) { runOnUiThread(() -> { if (txtRecognizedText != null) txtRecognizedText.setText(text); }); }
 
     private void setupPressAnimations() {
-        for (View v : new View[]{btnMenu, featuredCard, btnFeaturedOpen, navHome, navMaterials, navProfile}) {
+        for (View v : new View[]{btnMenu, featuredCard, btnFeaturedOpen}) {
             if (v == null) continue;
             v.setOnTouchListener((view, event) -> {
                 switch (event.getAction()) {
@@ -834,7 +839,6 @@ public class MaterialsActivity extends AppCompatActivity {
 
     private void bounceView(View v)      { if (v == null) return; v.animate().scaleX(1.03f).scaleY(1.03f).setDuration(90).withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(90).start()).start(); }
     private void pulseView(View v)       { if (v == null) return; v.animate().scaleX(1.02f).scaleY(1.02f).setDuration(120).withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()).start(); }
-    private void animateTabPress(View v) { if (v == null) return; v.animate().scaleX(0.90f).scaleY(0.90f).setDuration(85).withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(85).start()).start(); }
 
     private void animateMaterialsEntrance() {
 

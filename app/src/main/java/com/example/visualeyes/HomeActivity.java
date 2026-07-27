@@ -59,6 +59,8 @@ public class HomeActivity extends AppCompatActivity {
     private SeekBar seekFontSize;
     private TextView txtFontSizeTitle, txtFontSizeSubtitle;
     private ImageView btnMenu, btnOpenLearningMaterial, btnHelp;
+    private ImageView iconHome, iconMaterials, iconProfile;
+    private TextView textHome, textMaterials, textProfile;
     private LinearLayout navHome, navMaterials, navProfile;
     private CardView cardAnnouncement, cardLearningMaterial, cardFontSizeControl, bottomNavCard;
     private View topBar;
@@ -140,6 +142,7 @@ public class HomeActivity extends AppCompatActivity {
         googleStt   = new GoogleSttManager(this);
 
         bindViews();
+        setActiveNav("home");
         applyFontSize();
         setupWelcome();
         setupNavigation();
@@ -156,12 +159,12 @@ public class HomeActivity extends AppCompatActivity {
         initSpeechRecognizer();
         hybridSpeech = new HybridSpeechManager(this);
         hybridSpeech.initVosk(
-                () -> Log.d("Home_STT", "Vosk model ready — now the primary listen engine."),
-                () -> Log.e("Home_STT", "Vosk model failed to load — using raw SpeechRecognizer only."));
+                () -> Log.d("Home_STT", "Vosk model ready â now the primary listen engine."),
+                () -> Log.e("Home_STT", "Vosk model failed to load â using raw SpeechRecognizer only."));
 
         cascadeSession = new SttCascadeSession(googleStt, hybridSpeech, handler, false);
         loadLatestMaterial();
-        materialsDrawer.load();
+        materialsDrawer.load(authManager.getStudentId());
 
         handler.postDelayed(() ->
                 speak("Welcome to your home screen. " +
@@ -188,6 +191,12 @@ public class HomeActivity extends AppCompatActivity {
         navHome                     = findViewById(R.id.navHome);
         navMaterials                = findViewById(R.id.navMaterials);
         navProfile                  = findViewById(R.id.navProfile);
+        iconHome                    = findViewById(R.id.iconHome);
+        iconMaterials               = findViewById(R.id.iconMaterials);
+        iconProfile                 = findViewById(R.id.iconProfile);
+        textHome                    = findViewById(R.id.textHome);
+        textMaterials               = findViewById(R.id.textMaterials);
+        textProfile                 = findViewById(R.id.textProfile);
         cardAnnouncement            = findViewById(R.id.cardAnnouncement);
         cardLearningMaterial        = findViewById(R.id.cardLearningMaterial);
         cardFontSizeControl         = findViewById(R.id.cardFontSizeControl);
@@ -253,7 +262,7 @@ public class HomeActivity extends AppCompatActivity {
                     default:
                         Log.e("Home_STT", "Built-in recognizer onError code=" + error);
                         if (SpeechEngineHealth.isRecognizerIncompatible(error)) {
-                            Log.e("Home_STT", "Built-in recognizer is not usable on this device — "
+                            Log.e("Home_STT", "Built-in recognizer is not usable on this device â "
                                     + "skipping it from now on.");
                             SpeechEngineHealth.markBuiltInRecognizerBroken(HomeActivity.this);
                         }
@@ -569,10 +578,20 @@ public class HomeActivity extends AppCompatActivity {
     }
 
     private void loadLatestMaterial() {
-        String url = ApiConfig.MATERIALS
-                + "?select=*&is_sent_to_app=eq.true"
-                + "&admin_approval_status=eq.approved"
-                + "&order=upload_date.desc&limit=1";
+        String studentId = authManager.getStudentId();
+
+        if (studentId == null || studentId.trim().isEmpty()) {
+            latestMaterialId = ""; latestTitle = ""; latestFileUrl = "";
+            if (txtUpdateTitle != null) txtUpdateTitle.setText("No learning material available yet");
+            if (txtLearningMaterialSubtitle != null) txtLearningMaterialSubtitle.setText("Please log in again to view your materials.");
+            return;
+        }
+
+        String url = ApiConfig.STUDENT_ACCESS
+                + "?student_id=eq." + android.net.Uri.encode(studentId)
+                + "&select=materials(id,title,file_path,upload_date,is_sent_to_app,admin_approval_status)"
+                + "&materials.is_sent_to_app=eq.true"
+                + "&materials.admin_approval_status=eq.approved";
 
         RequestQueue queue = Volley.newRequestQueue(this);
         JsonArrayRequest req = new JsonArrayRequest(Request.Method.GET, url, null,
@@ -597,20 +616,40 @@ public class HomeActivity extends AppCompatActivity {
         queue.add(req);
     }
 
-    private void handleMaterialResponse(JSONArray materials) {
+    private void handleMaterialResponse(JSONArray rows) {
         try {
-            if (materials == null || materials.length() == 0) {
+            if (rows == null || rows.length() == 0) {
                 latestMaterialId = ""; latestTitle = ""; latestFileUrl = "";
                 if (txtUpdateTitle              != null) txtUpdateTitle.setText("No learning material available yet");
                 if (txtLearningMaterialSubtitle != null) txtLearningMaterialSubtitle.setText("Wait for your instructor or admin to send a lesson.");
                 if (txtAnnouncement             != null) txtAnnouncement.setText("No announcement available yet.");
                 return;
             }
-            JSONObject obj       = materials.getJSONObject(0);
-            latestMaterialId     = obj.optString("id",    "");
-            latestTitle          = obj.optString("title", "Learning Material");
-            latestFileUrl        = buildFileUrl(obj.optString("file_path", ""));
-            String announcement  = obj.optString("announcement", "").trim();
+
+            JSONObject latest = null;
+            String latestDate = "";
+            for (int i = 0; i < rows.length(); i++) {
+                JSONObject obj = rows.getJSONObject(i).optJSONObject("materials");
+                if (obj == null) continue;
+                String uploadDate = obj.optString("upload_date", "");
+                if (latest == null || uploadDate.compareTo(latestDate) > 0) {
+                    latest = obj;
+                    latestDate = uploadDate;
+                }
+            }
+
+            if (latest == null) {
+                latestMaterialId = ""; latestTitle = ""; latestFileUrl = "";
+                if (txtUpdateTitle              != null) txtUpdateTitle.setText("No learning material available yet");
+                if (txtLearningMaterialSubtitle != null) txtLearningMaterialSubtitle.setText("Wait for your instructor or admin to send a lesson.");
+                if (txtAnnouncement             != null) txtAnnouncement.setText("No announcement available yet.");
+                return;
+            }
+
+            latestMaterialId     = latest.optString("id",    "");
+            latestTitle          = latest.optString("title", "Learning Material");
+            latestFileUrl        = buildFileUrl(latest.optString("file_path", ""));
+            String announcement  = latest.optString("announcement", "").trim();
 
             if (txtAnnouncement             != null) txtAnnouncement.setText(!announcement.isEmpty() ? announcement : "No announcement available yet.");
             if (txtUpdateTitle              != null) txtUpdateTitle.setText(latestTitle);
@@ -640,7 +679,7 @@ public class HomeActivity extends AppCompatActivity {
     private void setupWelcome() {
         String name = authManager.getFirstName();
         if (name == null || name.trim().isEmpty()) name = "Student";
-        if (txtWelcome     != null) txtWelcome.setText("Welcome Back, " + name + "! 👋🏻");
+        if (txtWelcome     != null) txtWelcome.setText("Welcome Back, " + name + "! ðð»");
         if (txtSubtitle    != null) txtSubtitle.setText("Ready to start your learning journey?");
         if (txtAnnouncement!= null) txtAnnouncement.setText("Instructor announcement will appear here.");
     }
@@ -715,16 +754,14 @@ public class HomeActivity extends AppCompatActivity {
 
     private void setupNavigation() {
         if (navHome != null) navHome.setOnClickListener(v -> {
-            bounceView(navHome);
+            setActiveNav("home");
             speak("You are already on the home screen.", true);
         });
         if (navMaterials != null) navMaterials.setOnClickListener(v -> {
-            bounceView(navMaterials);
             speak("Opening materials.", false);
             handler.postDelayed(this::openMaterials, 400);
         });
         if (navProfile != null) navProfile.setOnClickListener(v -> {
-            bounceView(navProfile);
             speak("Opening profile.", false);
             handler.postDelayed(this::openProfile, 400);
         });
@@ -735,7 +772,7 @@ public class HomeActivity extends AppCompatActivity {
 
     private void setupPressAnimations() {
         for (View v : new View[]{btnMenu, btnHelp, btnOpenLearningMaterial, cardAnnouncement,
-                cardLearningMaterial, navHome, navMaterials, navProfile}) {
+                cardLearningMaterial}) {
             if (v == null) continue;
             v.setOnTouchListener((view, event) -> {
                 switch (event.getAction()) {
@@ -750,6 +787,16 @@ public class HomeActivity extends AppCompatActivity {
 
     private void bounceView(View v) { if (v == null) return; v.animate().scaleX(1.03f).scaleY(1.03f).setDuration(90).withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(90).start()).start(); }
     private void pulseView(View v)  { if (v == null) return; v.animate().scaleX(1.02f).scaleY(1.02f).setDuration(120).withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()).start(); }
+
+    private void setActiveNav(String tab) {
+        if (iconHome == null || iconMaterials == null || iconProfile == null) return;
+        int inactive = 0xFF8C4356, active = 0xFF2E0D18;
+        iconHome.setColorFilter(inactive); iconMaterials.setColorFilter(inactive); iconProfile.setColorFilter(inactive);
+        textHome.setTextColor(inactive);   textMaterials.setTextColor(inactive);   textProfile.setTextColor(inactive);
+        if ("home".equals(tab))           { iconHome.setColorFilter(active);      textHome.setTextColor(active); }
+        else if ("materials".equals(tab)) { iconMaterials.setColorFilter(active); textMaterials.setTextColor(active); }
+        else if ("profile".equals(tab))   { iconProfile.setColorFilter(active);   textProfile.setTextColor(active); }
+    }
 
     private void animateHomeEntrance() {
 

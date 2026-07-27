@@ -31,9 +31,11 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 final class MaterialsDrawerController {
 
@@ -74,13 +76,20 @@ final class MaterialsDrawerController {
 
     void close() { if (drawerLayout != null) drawerLayout.closeDrawer(GravityCompat.START); }
 
-    void load() {
+    void load(String studentId) {
         if (container == null) return;
+        if (studentId == null || studentId.isEmpty()) {
+            materials.clear();
+            container.removeAllViews();
+            container.addView(emptyLabel("Please log in again."));
+            return;
+        }
 
         String url = ApiConfig.MATERIALS
-                + "?is_sent_to_app=eq.true"
+                + "?select=id,title,file_path,upload_date,student_material_access!inner(student_id)"
+                + "&student_material_access.student_id=eq." + studentId
+                + "&is_sent_to_app=eq.true"
                 + "&admin_approval_status=eq.approved"
-                + "&select=id,title,file_path,upload_date"
                 + "&order=upload_date.desc";
 
         RequestQueue queue = Volley.newRequestQueue(activity);
@@ -89,10 +98,13 @@ final class MaterialsDrawerController {
                     materials.clear();
                     try {
                         if (response != null) {
+                            Set<String> seenIds = new HashSet<>();
                             for (int i = 0; i < response.length(); i++) {
                                 JSONObject obj = response.getJSONObject(i);
+                                String id = obj.optString("id", "");
+                                if (!seenIds.add(id)) continue;
                                 materials.add(new LearningMaterial(
-                                        obj.optString("id",          ""),
+                                        id,
                                         obj.optString("title",       "Untitled Material"),
                                         "English",
                                         buildFileUrl(obj.optString("file_path", "")),

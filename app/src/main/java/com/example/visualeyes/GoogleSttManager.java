@@ -105,6 +105,11 @@ public class GoogleSttManager {
      *                       explanation of what actually went wrong.
      */
     public void startRecording(SpeechEndListener listener, SttCallback errorCallback) {
+        if (appContext != null && !VoicePreferences.isSttEnabled(appContext)) {
+            notifyStartError(errorCallback, "Speech-to-Text is disabled.");
+            return;
+        }
+
         synchronized (audioChunks) { audioChunks.clear(); }
         isRecording = true;
 

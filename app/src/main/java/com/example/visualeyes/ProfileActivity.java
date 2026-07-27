@@ -209,7 +209,7 @@ public class ProfileActivity extends AppCompatActivity {
         setupMenuButton();
         materialsDrawer = new MaterialsDrawerController(this, drawerLayout, drawerMaterialsContainer,
                 btnMenu, btnCloseDrawer, this::stopListeningSafely);
-        materialsDrawer.load();
+        materialsDrawer.load(authManager.getStudentId());
         animateProfileEntrance();
         fetchStudentProfileFromServer();
 
@@ -678,19 +678,16 @@ public class ProfileActivity extends AppCompatActivity {
             });
 
         navHome.setOnClickListener(v -> {
-            animateTabPress(navHome);
             speak("Opening home.", false);
             handler.postDelayed(this::openHome, 300);
         });
 
         navMaterials.setOnClickListener(v -> {
-            animateTabPress(navMaterials);
             speak("Opening materials.", false);
             handler.postDelayed(this::openMaterials, 300);
         });
 
         navProfile.setOnClickListener(v -> {
-            animateTabPress(navProfile);
             setActiveNav("profile");
             speak("You are currently on the profile screen.", true);
         });
@@ -944,15 +941,12 @@ public class ProfileActivity extends AppCompatActivity {
     }
 
     private void setActiveNav(String tab) {
-        int inactive = 0xFF7A2F42, active = 0xFFFFFFFF;
-        navHome.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-        navMaterials.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-        navProfile.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        int inactive = 0xFF8C4356, active = 0xFF2E0D18;
         iconHome.setColorFilter(inactive); iconMaterials.setColorFilter(inactive); iconProfile.setColorFilter(inactive);
         textHome.setTextColor(inactive);   textMaterials.setTextColor(inactive);   textProfile.setTextColor(inactive);
-        if ("home".equals(tab))      { navHome.setBackgroundResource(R.drawable.bg_nav_active);      iconHome.setColorFilter(active);      textHome.setTextColor(active); }
-        else if ("materials".equals(tab)) { navMaterials.setBackgroundResource(R.drawable.bg_nav_active); iconMaterials.setColorFilter(active); textMaterials.setTextColor(active); }
-        else if ("profile".equals(tab))   { navProfile.setBackgroundResource(R.drawable.bg_nav_active);  iconProfile.setColorFilter(active);   textProfile.setTextColor(active); }
+        if ("home".equals(tab))           { iconHome.setColorFilter(active);      textHome.setTextColor(active); }
+        else if ("materials".equals(tab)) { iconMaterials.setColorFilter(active); textMaterials.setTextColor(active); }
+        else if ("profile".equals(tab))   { iconProfile.setColorFilter(active);   textProfile.setTextColor(active); }
     }
 
     private void updateVoiceStatus(String s)   { runOnUiThread(() -> { if (txtVoiceStatus    != null) txtVoiceStatus.setText("Voice: " + s); }); }
@@ -994,7 +988,7 @@ public class ProfileActivity extends AppCompatActivity {
 
     private void setupPressAnimations() {
         for (View v : new View[]{btnMenu, optionTts, optionStt, optionHelp, cardProfileInfo, cardImpairmentLevel,
-                cardVoiceStatus, cardOptions, navHome, navMaterials, navProfile,
+                cardVoiceStatus, cardOptions,
                 btnRetakeAssessment, btnLogout, imgProfile, btnEditProfile}) {
             if (v == null) continue;
             v.setOnTouchListener((view, event) -> {
@@ -1010,7 +1004,6 @@ public class ProfileActivity extends AppCompatActivity {
 
     private void bounceView(View v)     { if (v == null) return; v.animate().scaleX(1.05f).scaleY(1.05f).setDuration(90).withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(90).start()).start(); }
     private void pulseView(View v)      { if (v == null) return; v.animate().scaleX(1.02f).scaleY(1.02f).setDuration(120).withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()).start(); }
-    private void animateTabPress(View v){ if (v == null) return; v.animate().scaleX(0.90f).scaleY(0.90f).setDuration(85).withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(85).start()).start(); }
 
     private void animateProfileEntrance() {
         if (topBarProfile != null) { topBarProfile.setAlpha(0f); topBarProfile.setTranslationY(-35f); topBarProfile.animate().alpha(1f).translationY(0f).setDuration(350).start(); }
