@@ -57,8 +57,22 @@ public class GoogleSttManager {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final OkHttpClient httpClient = new OkHttpClient();
 
+    private final boolean respectVoicePreferences;
+
     public GoogleSttManager(Context context) {
+        this(context, true);
+    }
+
+    /**
+     * @param respectVoicePreferences pass false for screens that must keep listening
+     *                                 regardless of the app-wide STT on/off toggle —
+     *                                 Login/Register, since voice there is how a user
+     *                                 gets into the app in the first place, not a
+     *                                 preference they can have already turned off.
+     */
+    public GoogleSttManager(Context context, boolean respectVoicePreferences) {
         this.appContext = context == null ? null : context.getApplicationContext();
+        this.respectVoicePreferences = respectVoicePreferences;
     }
 
     private android.media.AudioRecord audioRecord;
@@ -105,7 +119,7 @@ public class GoogleSttManager {
      *                       explanation of what actually went wrong.
      */
     public void startRecording(SpeechEndListener listener, SttCallback errorCallback) {
-        if (appContext != null && !VoicePreferences.isSttEnabled(appContext)) {
+        if (respectVoicePreferences && appContext != null && !VoicePreferences.isSttEnabled(appContext)) {
             notifyStartError(errorCallback, "Speech-to-Text is disabled.");
             return;
         }

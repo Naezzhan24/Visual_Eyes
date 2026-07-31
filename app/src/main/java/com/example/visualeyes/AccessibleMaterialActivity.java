@@ -97,6 +97,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private String content       = "Loading material content...";
     private String impairmentLevel = "moderate";
     private int    recommendedTextSize = 24;
+    private boolean hasIntentTextSize  = false;
 
     private TextToSpeech    tts;
     private SpeechRecognizer speechRecognizer;
@@ -108,6 +109,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private final Handler       handler       = new Handler(Looper.getMainLooper());
     private       ArrayList<ReaderBlock> chunks = new ArrayList<>();
     private       int           currentChunkIndex = 0;
+    private       int           paragraphNumber   = 1;
 
     private boolean ttsReady       = false;
     private boolean isListening    = false;
@@ -177,7 +179,9 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         if (btnDecreaseText != null) UiAnim.attachPressFeedback(btnDecreaseText);
         if (btnIncreaseText != null) UiAnim.attachPressFeedback(btnIncreaseText);
 
-        recommendedTextSize = (int) FontSizeManager.getFontSize(this);
+        int intentTextSize = getIntent().getIntExtra("recommended_text_size", -1);
+        hasIntentTextSize = intentTextSize > 0;
+        recommendedTextSize = hasIntentTextSize ? intentTextSize : (int) FontSizeManager.getFontSize(this);
         txtReaderTitle.setText(title);
         txtReaderContent.setText(content);
         txtReaderContent.setLineSpacing(10f, 1.2f);
@@ -204,7 +208,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     @Override
     protected void onResume() {
         super.onResume();
-        if (txtReaderContent != null) applyTextSize((int) FontSizeManager.getFontSize(this), false);
+        if (txtReaderContent != null && !hasIntentTextSize) applyTextSize((int) FontSizeManager.getFontSize(this), false);
         if (!isTtsSpeaking && !isReading) restartListeningDelayed(700);
     }
 
@@ -750,6 +754,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
                 tv.setTextColor(0xFF2F2A2C);
                 tv.setLineSpacing(10f, 1.2f);
                 tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, recommendedTextSize);
+                tv.setJustificationMode(android.text.Layout.JUSTIFICATION_MODE_INTER_WORD);
                 tv.setText(block.text);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -1173,6 +1178,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         if (tts != null) tts.stop();
         isReading         = true;
         currentChunkIndex = 0;
+        paragraphNumber   = 1;
         handler.removeCallbacks(nextChunkRunnable);
         setVoiceStatus("Reading started...");
         readNextChunk();
@@ -1194,11 +1200,14 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
 
         String spoken;
         if (block.type == ReaderBlock.Type.TEXT) {
-            spoken = block.text != null ? block.text.toString() : "";
+            String bodyText = block.text != null ? block.text.toString() : "";
+            spoken = "Paragraph " + paragraphNumber + ". " + bodyText;
+            paragraphNumber++;
         } else {
             spoken = "Image. " + (block.caption != null && !block.caption.trim().isEmpty()
                     ? block.caption : "No description available.");
         }
+        spoken = NumberSpeechFormatter.toPlainSpeech(spoken);
 
         if (tts != null) {
             tts.stop();

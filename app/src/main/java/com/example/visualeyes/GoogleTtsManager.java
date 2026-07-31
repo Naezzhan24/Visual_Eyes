@@ -41,9 +41,22 @@ public class GoogleTtsManager {
     private MediaPlayer mediaPlayer;
 
     private int speechGeneration = 0;
+    private final boolean respectVoicePreferences;
 
     public GoogleTtsManager(Context context) {
+        this(context, true);
+    }
+
+    /**
+     * @param respectVoicePreferences pass false for screens that must keep speaking
+     *                                 regardless of the app-wide TTS on/off toggle —
+     *                                 Login/Register, since voice there is how a user
+     *                                 gets into the app in the first place, not a
+     *                                 preference they can have already turned off.
+     */
+    public GoogleTtsManager(Context context, boolean respectVoicePreferences) {
         this.context = context.getApplicationContext();
+        this.respectVoicePreferences = respectVoicePreferences;
         initAndroidTts();
     }
 
@@ -64,7 +77,8 @@ public class GoogleTtsManager {
     }
 
     public void speak(String text, float speakingRate, TtsCallback callback) {
-        if (text == null || text.isEmpty() || !VoicePreferences.isTtsEnabled(context)) {
+        if (text == null || text.isEmpty()
+                || (respectVoicePreferences && !VoicePreferences.isTtsEnabled(context))) {
             if (callback != null) mainHandler.post(callback::onDone);
             return;
         }

@@ -113,8 +113,13 @@ public class RegisterActivity extends AppCompatActivity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
+    private boolean micPermissionRequestInFlight = false;
+    private boolean lastKnownMicPermission = false;
+
     private final ActivityResultLauncher<String> micPermissionLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
+                micPermissionRequestInFlight = false;
+                lastKnownMicPermission = isGranted;
                 if (isGranted) {
                     updateVoiceStatus("Microphone enabled.");
                     lastSpokenInstruction = "Microphone permission granted.";
@@ -137,20 +142,16 @@ public class RegisterActivity extends AppCompatActivity {
                 "A system permission dialog will appear next — please allow it.";
         say(lastSpokenInstruction, () -> {
             MicPermissionHelper.markRequested(this);
+            micPermissionRequestInFlight = true;
             micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO);
         });
     }
-
-    private boolean awaitingSettingsReturn = false;
 
     private void explainPermanentDenialAndOpenSettings() {
         updateVoiceStatus("Microphone permission blocked.");
         lastSpokenInstruction = "Microphone access was previously denied and can't be requested again here. " +
                 "Opening app settings so you can enable it under Permissions.";
-        say(lastSpokenInstruction, () -> {
-            awaitingSettingsReturn = true;
-            MicPermissionHelper.openAppSettings(this);
-        });
+        say(lastSpokenInstruction, () -> MicPermissionHelper.openAppSettings(this));
     }
 
     @Override
@@ -162,10 +163,12 @@ public class RegisterActivity extends AppCompatActivity {
         requestQueue = Volley.newRequestQueue(this);
         nameNormalizer = new NameNormalizer(this);
 
-        googleTts = new GoogleTtsManager(this);
-        googleStt = new GoogleSttManager(this);
+        lastKnownMicPermission = hasAudioPermission();
 
-        hybridSpeech = new HybridSpeechManager(this);
+        googleTts = new GoogleTtsManager(this, false);
+        googleStt = new GoogleSttManager(this, false);
+
+        hybridSpeech = new HybridSpeechManager(this, false);
         hybridSpeech.initVosk(
                 () -> Log.d("Register_STT", "Vosk model ready — offline fallback available."),
                 () -> Log.e("Register_STT", "Vosk model failed to load — raw SpeechRecognizer fallback only."));
@@ -769,10 +772,40 @@ public class RegisterActivity extends AppCompatActivity {
     private void finishVoiceRegistration() {
         isVoiceMode       = false;
         isConfirmingField = false;
-        updateVoiceStatus("Voice registration complete.");
-        lastSpokenInstruction = "All fields completed. Please review your details, then press Continue.";
-        say(lastSpokenInstruction, null);
+        updateVoiceStatus("Reviewing your details...");
         Toast.makeText(this, "Voice registration completed.", Toast.LENGTH_SHORT).show();
+
+        lastSpokenInstruction = buildDetailsSummary();
+        say(lastSpokenInstruction, () -> {
+            stopListeningSafely();
+            validateAndContinue();
+        });
+    }
+
+    /**
+     * Every field here was already confirmed individually as it was collected
+     * (each has its own "is that correct?" step) — this is a final read-back of
+     * name through email before auto-continuing, not another confirmation gate.
+     * Password fields are intentionally excluded.
+     */
+    private String buildDetailsSummary() {
+        StringBuilder sb = new StringBuilder("Here is a summary of your details before I continue. ");
+
+        sb.append("First name: ").append(fname.getText().toString().trim()).append(". ");
+
+        String middle = mname.getText().toString().trim();
+        if (!middle.isEmpty()) sb.append("Middle name: ").append(middle).append(". ");
+
+        sb.append("Last name: ").append(lname.getText().toString().trim()).append(". ");
+        sb.append("Age: ").append(age.getText().toString().trim()).append(". ");
+        sb.append("Year level: ").append(yearLevel.getText().toString().trim()).append(". ");
+        sb.append("School ID: ")
+                .append(NumberSpeechFormatter.spellDigits(schoolid.getText().toString().trim()))
+                .append(". ");
+        sb.append("Email: ").append(email.getText().toString().trim()).append(". ");
+
+        sb.append("Proceeding to submit your registration for approval.");
+        return sb.toString();
     }
 
     private boolean isYes(String text) {
@@ -871,7 +904,7 @@ public class RegisterActivity extends AppCompatActivity {
             case 2: return "I heard " + spellOut(value) + ", " + value + ", as your last name. Is the spelling correct? Say yes or no.";
             case 3: return "I heard " + value + " as your age. Is that correct? Say yes or no.";
             case 4: return "I heard " + value + " as your year level. Is that correct? Say yes or no.";
-            case 5: return "I heard " + value + " as your school ID. Is that correct? Say yes or no.";
+            case 5: return "I heard " + NumberSpeechFormatter.spellDigits(value) + " as your school ID. Is that correct? Say yes or no.";
             case 6: return "I heard your email address. Is that correct? Say yes or no.";
             case 7: return "Password received. Is that correct? Say yes or no.";
             case 8: return "Confirm password received. Is that correct? Say yes or no.";
@@ -1215,13 +1248,18 @@ public class RegisterActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (awaitingSettingsReturn) {
-            awaitingSettingsReturn = false;
-            if (hasAudioPermission()) {
-                updateVoiceStatus("Microphone enabled.");
-                MicReadiness.awaitReady(handler, this::startVoiceRegistration);
-            }
+        boolean nowGranted = hasAudioPermission();
+        // Covers a grant obtained any way other than our own in-app request —
+        // returning from Settings, a permission change made elsewhere, or a
+        // process restart landing here with permission already present —
+        // without depending on a flag we ourselves have to remember to set.
+        // micPermissionRequestInFlight excludes the in-app request path, whose
+        // own ActivityResultLauncher callback already handles the resume.
+        if (nowGranted && !lastKnownMicPermission && !micPermissionRequestInFlight) {
+            updateVoiceStatus("Microphone enabled.");
+            MicReadiness.awaitReady(handler, this::startVoiceRegistration);
         }
+        lastKnownMicPermission = nowGranted;
     }
 
     @Override

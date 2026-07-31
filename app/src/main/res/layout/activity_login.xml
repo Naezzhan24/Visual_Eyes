@@ -31,15 +31,26 @@
                 android:paddingEnd="20dp"
                 android:paddingBottom="18dp">
 
-                <ImageView
-                    android:id="@+id/logoImage"
-                    android:layout_width="190dp"
-                    android:layout_height="100dp"
+                <FrameLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
                     android:layout_gravity="center"
-                    android:adjustViewBounds="true"
-                    android:contentDescription="@string/logo_desc"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/logo_visualed" />
+                    android:background="@drawable/bg_logo_backing"
+                    android:elevation="3dp"
+                    android:paddingStart="16dp"
+                    android:paddingTop="14dp"
+                    android:paddingEnd="16dp"
+                    android:paddingBottom="14dp">
+
+                    <ImageView
+                        android:id="@+id/logoImage"
+                        android:layout_width="230dp"
+                        android:layout_height="121dp"
+                        android:adjustViewBounds="true"
+                        android:contentDescription="@string/logo_desc"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/logo_visualed" />
+                </FrameLayout>
 
                 <TextView
                     android:id="@+id/txtTitle"
@@ -146,18 +157,33 @@
                     android:textSize="16sp"
                     android:textStyle="bold" />
 
-                <TextView
-                    android:id="@+id/txtVoiceStatus"
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
                     android:background="@drawable/bg_voice_chip_soft"
-                    android:gravity="center"
-                    android:padding="10dp"
-                    android:text="@string/voice_status_off"
-                    android:textColor="@color/color_text_primary"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:padding="10dp">
+
+                    <com.example.visualeyes.MicWaveView
+                        android:id="@+id/micWaveView"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="6dp"
+                        android:visibility="gone" />
+
+                    <TextView
+                        android:id="@+id/txtVoiceStatus"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="center"
+                        android:text="@string/voice_status_off"
+                        android:textColor="@color/color_text_primary"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/txtRegister"

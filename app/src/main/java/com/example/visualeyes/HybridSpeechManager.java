@@ -41,8 +41,22 @@ public class HybridSpeechManager {
     private volatile boolean isFinishing = false;
     private final Runnable softStopRunnable = this::finishTranscription;
 
+    private final boolean respectVoicePreferences;
+
     public HybridSpeechManager(Context context) {
+        this(context, true);
+    }
+
+    /**
+     * @param respectVoicePreferences pass false for screens that must keep listening
+     *                                 regardless of the app-wide STT on/off toggle —
+     *                                 Login/Register, since voice there is how a user
+     *                                 gets into the app in the first place, not a
+     *                                 preference they can have already turned off.
+     */
+    public HybridSpeechManager(Context context, boolean respectVoicePreferences) {
         this.context = context.getApplicationContext();
+        this.respectVoicePreferences = respectVoicePreferences;
     }
 
     public void initVosk(Runnable onReady, Runnable onFailed) {
@@ -74,7 +88,7 @@ public class HybridSpeechManager {
      * @param fieldDescription unused, same reason as above.
      */
     public void startListening(HybridSpeechCallback cb, boolean useWhisper, String fieldDescription) {
-        if (!VoicePreferences.isSttEnabled(context)) {
+        if (respectVoicePreferences && !VoicePreferences.isSttEnabled(context)) {
             cb.onError("Speech-to-Text is disabled.");
             return;
         }

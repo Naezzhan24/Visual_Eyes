@@ -34,7 +34,6 @@ import org.json.JSONObject;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Locale;
 import java.util.Map;
 
 public class FeedbackActivity extends AppCompatActivity {
@@ -142,9 +141,14 @@ public class FeedbackActivity extends AppCompatActivity {
         speechIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         speechIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        speechIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toString());
-        speechIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
-        speechIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
+        speechIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE,            "en-US");
+        speechIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "en-US");
+        speechIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS,     true);
+        speechIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,         5);
+        speechIntent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE,      false);
+        speechIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,          1500L);
+        speechIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L);
+        speechIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS,                   800L);
     }
 
     private void startVoiceInput() {

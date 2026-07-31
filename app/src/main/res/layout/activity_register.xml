@@ -21,15 +21,26 @@
             android:elevation="8dp"
             android:padding="22dp">
 
-            <ImageView
-                android:id="@+id/logoImage"
-                android:layout_width="190dp"
-                android:layout_height="100dp"
+            <FrameLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
                 android:layout_gravity="center"
-                android:adjustViewBounds="true"
-                android:scaleType="fitCenter"
-                android:contentDescription="@string/logo_desc"
-                android:src="@drawable/logo_visualed" />
+                android:background="@drawable/bg_logo_backing"
+                android:elevation="3dp"
+                android:paddingStart="16dp"
+                android:paddingTop="14dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="14dp">
+
+                <ImageView
+                    android:id="@+id/logoImage"
+                    android:layout_width="230dp"
+                    android:layout_height="121dp"
+                    android:adjustViewBounds="true"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@string/logo_desc"
+                    android:src="@drawable/logo_visualed" />
+            </FrameLayout>
 
             <TextView
                 android:layout_width="wrap_content"
