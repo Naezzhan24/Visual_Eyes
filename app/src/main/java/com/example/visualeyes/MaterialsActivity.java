@@ -37,6 +37,7 @@ import com.android.volley.toolbox.Volley;
 
 import org.json.JSONObject;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Locale;
@@ -108,8 +109,8 @@ public class MaterialsActivity extends AppCompatActivity {
         googleStt = new GoogleSttManager(this);
         hybridSpeech = new HybridSpeechManager(this);
         hybridSpeech.initVosk(
-                () -> Log.d("Materials_STT", "Vosk model ready â now the primary listen engine."),
-                () -> Log.e("Materials_STT", "Vosk model failed to load â using raw SpeechRecognizer only."));
+                () -> Log.d("Materials_STT", "Vosk model ready — now the primary listen engine."),
+                () -> Log.e("Materials_STT", "Vosk model failed to load — using raw SpeechRecognizer only."));
 
         cascadeSession = new SttCascadeSession(googleStt, hybridSpeech, handler, false);
 
@@ -235,7 +236,7 @@ public class MaterialsActivity extends AppCompatActivity {
                     default:
                         Log.e("Materials_STT", "Built-in recognizer onError code=" + error);
                         if (SpeechEngineHealth.isRecognizerIncompatible(error)) {
-                            Log.e("Materials_STT", "Built-in recognizer is not usable on this device â "
+                            Log.e("Materials_STT", "Built-in recognizer is not usable on this device — "
                                     + "skipping it from now on.");
                             SpeechEngineHealth.markBuiltInRecognizerBroken(MaterialsActivity.this);
                         }
@@ -589,24 +590,40 @@ public class MaterialsActivity extends AppCompatActivity {
     }
 
     private void loadMaterials() {
-        AuthManager authManager = new AuthManager(this);
-        String studentId = authManager.getStudentId();
+        AuthManager authManager   = new AuthManager(this);
+        String studentEmail       = authManager.getEmail();
+        String studentPassword    = authManager.getPassword();
 
-        if (studentId == null || studentId.trim().isEmpty()) {
+        if (studentEmail == null || studentEmail.trim().isEmpty()) {
             if (txtFeaturedTitle != null) txtFeaturedTitle.setText("No learning material yet");
             if (txtWelcome != null) txtWelcome.setText("Please log in again to view your materials.");
             applyFontSize();
             return;
         }
 
-        String materialsUrl = ApiConfig.STUDENT_ACCESS
-                + "?student_id=eq." + android.net.Uri.encode(studentId)
-                + "&select=materials(id,title,file_path,upload_date,is_sent_to_app,admin_approval_status)"
-                + "&materials.is_sent_to_app=eq.true"
-                + "&materials.admin_approval_status=eq.approved";
+        // Calls the get_student_materials RPC instead of directly querying
+        // student_material_access with a client-supplied student_id filter —
+        // that filter could be bypassed or changed by anyone with the anon
+        // key, since the database itself never verified who was asking. The
+        // RPC re-verifies email+password server-side and only returns
+        // materials for classes this student is actually enrolled in.
+        String url = ApiConfig.SUPABASE_URL + "/rest/v1/rpc/get_student_materials";
+
+        JSONObject rpcBody = new JSONObject();
+        String bodyStr;
+        try {
+            rpcBody.put("p_email", studentEmail);
+            rpcBody.put("p_password", studentPassword);
+            bodyStr = rpcBody.toString();
+        } catch (Exception e) {
+            if (txtFeaturedTitle != null) txtFeaturedTitle.setText("Unable to read materials");
+            applyFontSize();
+            return;
+        }
+        final String finalBodyStr = bodyStr;
 
         RequestQueue queue = Volley.newRequestQueue(this);
-        JsonArrayRequest req = new JsonArrayRequest(Request.Method.GET, materialsUrl, null,
+        JsonArrayRequest req = new JsonArrayRequest(Request.Method.POST, url, null,
                 response -> {
                     materialList.clear();
                     recentMaterialsContainer.removeAllViews();
@@ -619,9 +636,7 @@ public class MaterialsActivity extends AppCompatActivity {
                         }
                         if (txtWelcome != null) txtWelcome.setText("Welcome to your accessible learning materials.");
                         for (int i = 0; i < response.length(); i++) {
-                            JSONObject row = response.getJSONObject(i);
-                            JSONObject obj = row.optJSONObject("materials");
-                            if (obj == null) continue;
+                            JSONObject obj = response.getJSONObject(i);
                             materialList.add(new LearningMaterial(
                                     obj.optString("id",          ""),
                                     obj.optString("title",       "Untitled Material"),
@@ -648,10 +663,21 @@ public class MaterialsActivity extends AppCompatActivity {
                     applyFontSize();
                 }
         ) {
+            @Override
+            public byte[] getBody() {
+                return finalBodyStr.getBytes(StandardCharsets.UTF_8);
+            }
+
+            @Override
+            public String getBodyContentType() {
+                return "application/json; charset=utf-8";
+            }
+
             @Override public Map<String, String> getHeaders() {
                 Map<String, String> h = new HashMap<>();
                 h.put("apikey",        ApiConfig.SUPABASE_KEY);
                 h.put("Authorization", "Bearer " + ApiConfig.SUPABASE_KEY);
+                h.put("Content-Type",  "application/json");
                 h.put("Accept",        "application/json");
                 return h;
             }
@@ -746,13 +772,25 @@ public class MaterialsActivity extends AppCompatActivity {
         if (googleTts != null) googleTts.stopSpeaking();
         updateVoiceStatus("Opening material...");
 
-        Intent intent = new Intent(this, AccessibleMaterialActivity.class);
-        intent.putExtra("material_id",     material.getId());
-        intent.putExtra("file_url",        material.getFileUrl());
-        intent.putExtra("title",           material.getTitle());
-        intent.putExtra("impairment_level","moderate");
-        startActivity(intent);
-        overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left);
+        // Requests a short-lived signed URL before opening — the materials
+        // bucket is private now, so the permanently-stored public URL no
+        // longer works by itself.
+        SignedUrlHelper.resolve(this, material.getFileUrl(), new SignedUrlHelper.Callback() {
+            @Override public void onSignedUrl(String signedUrl) {
+                Intent intent = new Intent(MaterialsActivity.this, AccessibleMaterialActivity.class);
+                intent.putExtra("material_id",     material.getId());
+                intent.putExtra("file_url",        signedUrl);
+                intent.putExtra("title",           material.getTitle());
+                intent.putExtra("impairment_level","moderate");
+                startActivity(intent);
+                overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left);
+            }
+
+            @Override public void onError() {
+                updateVoiceStatus("Unable to open material.");
+                Toast.makeText(MaterialsActivity.this, "Unable to open material. Please try again.", Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     private LearningMaterial getLastOpened() {
@@ -939,6 +977,10 @@ public class MaterialsActivity extends AppCompatActivity {
         super.onPause();
         handler.removeCallbacks(restartListeningRunnable);
         stopListening();
+        // Navigating to another screen (e.g. opening a material) leaves this
+        // activity paused, not destroyed — its TTS would otherwise keep
+        // talking in the background and overlap with the next screen's voice.
+        if (googleTts != null) googleTts.stopSpeaking();
         updateVoiceStatus("Paused.");
     }
 

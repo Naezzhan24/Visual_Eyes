@@ -26,6 +26,7 @@ import com.android.volley.toolbox.Volley;
 
 import org.json.JSONObject;
 
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -51,7 +52,7 @@ final class MaterialsDrawerController {
     private final Runnable beforeOpenMaterial;
 
     MaterialsDrawerController(Activity activity, DrawerLayout drawerLayout, LinearLayout container,
-                               ImageView menuIcon, ImageView btnClose, Runnable beforeOpenMaterial) {
+                              ImageView menuIcon, ImageView btnClose, Runnable beforeOpenMaterial) {
         this.activity = activity;
         this.drawerLayout = drawerLayout;
         this.container = container;
@@ -76,24 +77,39 @@ final class MaterialsDrawerController {
 
     void close() { if (drawerLayout != null) drawerLayout.closeDrawer(GravityCompat.START); }
 
-    void load(String studentId) {
+    void load(String email, String password) {
         if (container == null) return;
-        if (studentId == null || studentId.isEmpty()) {
+        if (email == null || email.isEmpty()) {
             materials.clear();
             container.removeAllViews();
             container.addView(emptyLabel("Please log in again."));
             return;
         }
 
-        String url = ApiConfig.MATERIALS
-                + "?select=id,title,file_path,upload_date,student_material_access!inner(student_id)"
-                + "&student_material_access.student_id=eq." + studentId
-                + "&is_sent_to_app=eq.true"
-                + "&admin_approval_status=eq.approved"
-                + "&order=upload_date.desc";
+        // Calls the get_student_materials RPC instead of directly querying
+        // materials with a client-supplied student_id inner-join filter —
+        // that filter could be bypassed or changed by anyone with the anon
+        // key, since materials also had its own public SELECT policy with no
+        // class/student restriction at all. The RPC re-verifies email+password
+        // server-side and only returns materials for classes this student is
+        // actually enrolled in.
+        String url = ApiConfig.SUPABASE_URL + "/rest/v1/rpc/get_student_materials";
+
+        JSONObject rpcBody = new JSONObject();
+        String bodyStr;
+        try {
+            rpcBody.put("p_email", email);
+            rpcBody.put("p_password", password);
+            bodyStr = rpcBody.toString();
+        } catch (Exception e) {
+            container.removeAllViews();
+            container.addView(emptyLabel("Unable to load materials."));
+            return;
+        }
+        final String finalBodyStr = bodyStr;
 
         RequestQueue queue = Volley.newRequestQueue(activity);
-        JsonArrayRequest req = new JsonArrayRequest(Request.Method.GET, url, null,
+        JsonArrayRequest req = new JsonArrayRequest(Request.Method.POST, url, null,
                 response -> {
                     materials.clear();
                     try {
@@ -125,10 +141,21 @@ final class MaterialsDrawerController {
                     container.addView(emptyLabel("Connection failed."));
                 }
         ) {
+            @Override
+            public byte[] getBody() {
+                return finalBodyStr.getBytes(StandardCharsets.UTF_8);
+            }
+
+            @Override
+            public String getBodyContentType() {
+                return "application/json; charset=utf-8";
+            }
+
             @Override public Map<String, String> getHeaders() {
                 Map<String, String> h = new HashMap<>();
                 h.put("apikey",        ApiConfig.SUPABASE_KEY);
                 h.put("Authorization", "Bearer " + ApiConfig.SUPABASE_KEY);
+                h.put("Content-Type",  "application/json");
                 h.put("Accept",        "application/json");
                 return h;
             }
@@ -296,15 +323,25 @@ final class MaterialsDrawerController {
         prefs.edit().putString(KEY_LAST_OPENED_TITLE, material.getTitle())
                 .putString(KEY_LAST_OPENED_URL,   material.getFileUrl()).apply();
 
-        if (beforeOpenMaterial != null) beforeOpenMaterial.run();
+        // Requests a short-lived signed URL before opening — see
+        // MaterialsActivity.openMaterial() for why.
+        SignedUrlHelper.resolve(activity, material.getFileUrl(), new SignedUrlHelper.Callback() {
+            @Override public void onSignedUrl(String signedUrl) {
+                if (beforeOpenMaterial != null) beforeOpenMaterial.run();
 
-        Intent intent = new Intent(activity, AccessibleMaterialActivity.class);
-        intent.putExtra("material_id",      material.getId());
-        intent.putExtra("file_url",         material.getFileUrl());
-        intent.putExtra("title",            material.getTitle());
-        intent.putExtra("impairment_level", "moderate");
-        activity.startActivity(intent);
-        activity.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left);
+                Intent intent = new Intent(activity, AccessibleMaterialActivity.class);
+                intent.putExtra("material_id",      material.getId());
+                intent.putExtra("file_url",         signedUrl);
+                intent.putExtra("title",            material.getTitle());
+                intent.putExtra("impairment_level", "moderate");
+                activity.startActivity(intent);
+                activity.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left);
+            }
+
+            @Override public void onError() {
+                Toast.makeText(activity, "Unable to open material. Please try again.", Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     private int dp(int value) {

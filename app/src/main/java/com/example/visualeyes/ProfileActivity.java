@@ -47,6 +47,7 @@ import com.bumptech.glide.Glide;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Locale;
@@ -209,7 +210,7 @@ public class ProfileActivity extends AppCompatActivity {
         setupMenuButton();
         materialsDrawer = new MaterialsDrawerController(this, drawerLayout, drawerMaterialsContainer,
                 btnMenu, btnCloseDrawer, this::stopListeningSafely);
-        materialsDrawer.load(authManager.getStudentId());
+        materialsDrawer.load(authManager.getEmail(), authManager.getPassword());
         animateProfileEntrance();
         fetchStudentProfileFromServer();
 
@@ -775,25 +776,35 @@ public class ProfileActivity extends AppCompatActivity {
     }
 
     private void fetchStudentProfileFromServer() {
-        String studentId = authManager.getStudentId();
-        String email     = authManager.getEmail();
-        String url;
+        String email    = authManager.getEmail();
+        String password = authManager.getPassword();
 
-        if (studentId != null && !studentId.trim().isEmpty()) {
-            url = ApiConfig.STUDENTS + "?id=eq." + Uri.encode(studentId.trim())
-                    + "&select=id,first_name,middle_name,last_name,school_id,email,"
-                    + "impairment_level,recommended_text_size&limit=1";
-        } else if (email != null && !email.trim().isEmpty()) {
-            url = ApiConfig.STUDENTS + "?email=eq."
-                    + Uri.encode(email.trim().toLowerCase(Locale.US))
-                    + "&select=id,first_name,middle_name,last_name,school_id,email,"
-                    + "impairment_level,recommended_text_size&limit=1";
-        } else {
+        if (email == null || email.trim().isEmpty()) {
             Toast.makeText(this, "No saved student account.", Toast.LENGTH_LONG).show();
             return;
         }
 
-        JsonArrayRequest req = new JsonArrayRequest(Request.Method.GET, url, null,
+        // Reuses the student_login RPC (already re-verifies email+password
+        // server-side and returns these same fields) instead of querying the
+        // students table directly. A direct SELECT no longer has any RLS
+        // policy to pass now that the wide-open one was removed as part of
+        // the students-table security fix, so this used to silently return
+        // nothing.
+        String url = ApiConfig.SUPABASE_URL + "/rest/v1/rpc/student_login";
+
+        JSONObject rpcBody = new JSONObject();
+        String bodyStr;
+        try {
+            rpcBody.put("p_email", email);
+            rpcBody.put("p_password", password);
+            bodyStr = rpcBody.toString();
+        } catch (Exception e) {
+            Toast.makeText(this, "Failed to prepare profile request.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final String finalBodyStr = bodyStr;
+
+        JsonArrayRequest req = new JsonArrayRequest(Request.Method.POST, url, null,
                 response -> {
                     try {
                         if (response == null || response.length() == 0) return;
@@ -830,6 +841,16 @@ public class ProfileActivity extends AppCompatActivity {
                 },
                 error -> Toast.makeText(this, "Failed to load profile.", Toast.LENGTH_LONG).show()
         ) {
+            @Override
+            public byte[] getBody() {
+                return finalBodyStr.getBytes(StandardCharsets.UTF_8);
+            }
+
+            @Override
+            public String getBodyContentType() {
+                return "application/json; charset=utf-8";
+            }
+
             @Override public Map<String, String> getHeaders() {
                 Map<String, String> h = new HashMap<>();
                 h.put("apikey",        ApiConfig.SUPABASE_KEY);
@@ -1102,6 +1123,10 @@ public class ProfileActivity extends AppCompatActivity {
         super.onPause();
         handler.removeCallbacks(delayedStartListening);
         stopListeningSafely();
+        // Navigating to another screen leaves this activity paused, not
+        // destroyed — its TTS would otherwise keep talking in the background
+        // and overlap with the next screen's voice.
+        if (googleTts != null) googleTts.stopSpeaking();
         commandHandled = false;
     }
 

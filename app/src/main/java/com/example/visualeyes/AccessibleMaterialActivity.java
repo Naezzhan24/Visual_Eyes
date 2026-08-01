@@ -108,7 +108,10 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private Intent          speechIntent;
 
     private HybridSpeechManager hybridSpeech;
-    private static final long VOSK_LISTEN_TIMEOUT_MS = 6000L;
+    private GoogleSttManager    googleStt;
+    private SttCascadeSession   cascadeSession;
+    private int                 voiceSessionId = 0;
+    private static final long   CASCADE_WATCHDOG_MS = 12000L;
 
     private final Handler       handler       = new Handler(Looper.getMainLooper());
     private       ArrayList<ReaderBlock> chunks = new ArrayList<>();
@@ -203,10 +206,17 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
 
         tts = new TextToSpeech(this, this);
         initSpeechRecognizer();
-        hybridSpeech = new HybridSpeechManager(this);
+
+        // respectVoicePreferences=false: matches Register/Login — voice control is
+        // this reader's primary interface (not a preference the user can have
+        // already turned off elsewhere), and the built-in recognizer -> Cloud STT
+        // -> Vosk fallback ladder below mirrors Register's accuracy stack.
+        googleStt    = new GoogleSttManager(this, false);
+        hybridSpeech = new HybridSpeechManager(this, false);
         hybridSpeech.initVosk(
-                () -> Log.d("Reader_STT", "Vosk model ready — now the primary listen engine."),
-                () -> Log.e("Reader_STT", "Vosk model failed to load — using raw SpeechRecognizer only."));
+                () -> Log.d("Reader_STT", "Vosk model ready — offline fallback available."),
+                () -> Log.e("Reader_STT", "Vosk model failed to load — raw/Cloud STT fallback only."));
+        cascadeSession = new SttCascadeSession(googleStt, hybridSpeech, handler, true);
         checkMicPermission();
 
         fetchMaterialContent();
@@ -225,6 +235,13 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         handler.removeCallbacks(restartListeningRunnable);
         handler.removeCallbacks(nextChunkRunnable);
         stopListeningSafe();
+
+        // Navigating away (e.g. the "feedback" voice command opens FeedbackActivity
+        // without finishing this one) leaves this activity paused, not destroyed —
+        // its TTS would otherwise keep talking in the background and overlap with
+        // whatever the next screen speaks.
+        if (tts != null) tts.stop();
+        isTtsSpeaking = false;
     }
 
     @Override
@@ -238,6 +255,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         if (tts != null) { tts.stop(); tts.shutdown(); }
         destroySpeechRecognizer();
         if (hybridSpeech != null) hybridSpeech.destroy();
+        if (googleStt    != null) googleStt.destroy();
         super.onDestroy();
     }
 
@@ -977,15 +995,22 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
                     return;
                 }
 
-                if (!isTtsSpeaking) restartListeningDelayed(1000);
+                // Didn't catch it on the built-in recognizer — try again through
+                // the Cloud STT/Vosk cascade (same accuracy ladder as Register)
+                // before just looping back and asking the user to repeat.
+                if (!isTtsSpeaking) cascadeFromBuiltIn();
             }
 
             @Override public void onResults(Bundle results) {
                 isListening = false;
                 ArrayList<String> matches =
                         results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                if (matches != null && !matches.isEmpty()) handleCommand(matches.get(0));
-                if (!isTtsSpeaking) restartListeningDelayed(800);
+                if (matches != null && !matches.isEmpty()) {
+                    handleCommand(matches.get(0));
+                    if (!isTtsSpeaking) restartListeningDelayed(800);
+                } else if (!isTtsSpeaking) {
+                    cascadeFromBuiltIn();
+                }
             }
 
             @Override public void onPartialResults(Bundle partial) {
@@ -1032,49 +1057,65 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
             setVoiceStatus("Voice: microphone permission missing");
             return;
         }
-        if (hybridSpeech != null && hybridSpeech.isReady()) {
-            startVoskListening();
-        } else {
+        // Built-in recognizer first (fastest, and gets the phrase-boost hints
+        // above); Cloud STT/Vosk is the fallback via cascadeFromBuiltIn(), same
+        // ladder Register/Feedback use. Only skip straight to the cascade if
+        // the built-in recognizer isn't usable on this device at all.
+        if (recognizerReady && speechRecognizer != null) {
             startRawAndroidListening();
+        } else {
+            cascadeFromBuiltIn();
         }
     }
 
-    private void startVoskListening() {
+    /** Cloud STT -> Vosk fallback, reached when the built-in recognizer errors,
+     *  comes back empty, or isn't available on this device. */
+    private void cascadeFromBuiltIn() {
         if (isListening || isTtsSpeaking) return;
+        if (cascadeSession == null) { restartListeningDelayed(1000); return; }
+
         isListening = true;
         setVoiceStatus("Get ready...");
+        final int mySession = ++voiceSessionId;
 
-        AudioCue.playThen(handler, () -> {
-            if (!isListening) return;
-            setVoiceStatus("Voice: listening...");
+        cascadeSession.cascade(this, "command", "reading command", new SttCascadeSession.Listener() {
+            @Override public void onListeningStarted() {
+                if (mySession != voiceSessionId) return;
+                setVoiceStatus("Voice: listening...");
+            }
 
-            boolean useWhisper = NetworkUtils.hasInternet(this);
-            hybridSpeech.startListening(new HybridSpeechManager.HybridSpeechCallback() {
-                @Override public void onListeningStarted() {  }
+            @Override public void onPartialResult(String partial) {
+                if (mySession != voiceSessionId) return;
+                setVoiceStatus("Hearing: " + partial);
+            }
 
-                @Override public void onPartialResult(String partial) {
-                    setVoiceStatus("Hearing: " + partial);
+            @Override public void onTranscript(String transcript) {
+                if (mySession != voiceSessionId) return;
+                isListening = false;
+                if (transcript != null && !transcript.trim().isEmpty()) {
+                    handleCommand(transcript);
                 }
+                if (!isTtsSpeaking) restartListeningDelayed(800);
+            }
 
-                @Override public void onFinalResult(String transcript) {
-                    isListening = false;
-                    if (transcript != null && !transcript.trim().isEmpty()) {
-                        handleCommand(transcript);
-                    }
-                    if (!isTtsSpeaking) restartListeningDelayed(800);
-                }
-
-                @Override public void onError(String message) {
-                    isListening = false;
-                    Log.e("Reader_STT", "Vosk failed (" + message + "), falling back to raw recognizer.");
-                    startRawAndroidListening();
-                }
-            }, useWhisper, null);
-
-            handler.postDelayed(() -> {
-                if (isListening) hybridSpeech.stopAndTranscribe();
-            }, VOSK_LISTEN_TIMEOUT_MS);
+            @Override public void onExhausted() {
+                if (mySession != voiceSessionId) return;
+                isListening = false;
+                if (!isTtsSpeaking) restartListeningDelayed(1000);
+            }
         });
+
+        // Safety net: if the cascade never calls back at all (a silent failure
+        // somewhere below SttCascadeSession's own timeouts), isListening would
+        // otherwise stay stuck true forever and silently swallow every command
+        // from here on. Force a reset so the mic loop always recovers.
+        handler.postDelayed(() -> {
+            if (mySession != voiceSessionId || !isListening) return;
+            Log.e("Reader_STT", "Cascade fallback timed out with no callback — forcing restart.");
+            isListening = false;
+            if (cascadeSession != null) cascadeSession.cancel();
+            if (!isTtsSpeaking) restartListeningDelayed(800);
+        }, CASCADE_WATCHDOG_MS);
     }
 
     private void startRawAndroidListening() {
@@ -1100,6 +1141,8 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     }
 
     private void stopListeningSafe() {
+        voiceSessionId++;
+        if (cascadeSession != null) cascadeSession.cancel();
         if (hybridSpeech != null) hybridSpeech.cancel();
         if (speechRecognizer != null) {
             try { speechRecognizer.stopListening(); } catch (Exception ignored) {}
@@ -1129,6 +1172,10 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         if (isBackCommand(cmd))         { handleBackAction();         return; }
         if (isRestartCommand(cmd))      { startReading();    return; }
         if (isFeedbackCommand(cmd))     { openFeedback();     return; }
+        // General "repeat" — works any time, not just right after a paragraph
+        // finishes (that narrower case is already handled above while
+        // awaitingChunkDecision). No-ops safely if nothing has been read yet.
+        if (isRepeatChunkCommand(cmd) && lastReadChunkIndex >= 0) { repeatCurrentChunk(); return; }
 
         if (isYesCommand(cmd)) {
             if (!materialLoaded) {
@@ -1195,8 +1242,10 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         return c.contains("restart") || c.contains("from beginning") || c.contains("muli");
     }
     private boolean isInstructionCommand(String c) {
-        return c.contains("instruction") || c.contains("repeat") || c.contains("help")
-                || c.contains("guide") || c.contains("ulit");
+        // "repeat"/"ulit" deliberately excluded — isRepeatChunkCommand() owns
+        // those below, so "repeat" always repeats the last chunk instead of
+        // sometimes re-triggering the full instructions depending on timing.
+        return c.contains("instruction") || c.contains("help") || c.contains("guide");
     }
     private boolean isBackCommand(String c) {
         return c.contains("back") || c.contains("return") || c.contains("balik");
@@ -1522,8 +1571,23 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         size = Math.max(MIN_TEXT_SIZE, Math.min(MAX_TEXT_SIZE, size));
         recommendedTextSize = size;
 
-        for (TextView tv : bodyTextViews) tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, size);
-        for (TextView tv : captionTextViews) tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(12, size - 6));
+        for (TextView tv : bodyTextViews) {
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, size);
+            tv.requestLayout();
+        }
+        for (TextView tv : captionTextViews) {
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(12, size - 6));
+            tv.requestLayout();
+        }
+
+        // Every block's height changes with text size (more/fewer wrapped
+        // lines per paragraph), which changes the total scrollable content
+        // height. Force a fresh measure/layout pass on the container and
+        // ScrollView so the scrollable area recalculates immediately instead
+        // of leaving stale bounds from the previous size — otherwise blocks
+        // can visually overlap or get clipped against the old viewport height.
+        if (contentContainer != null) contentContainer.requestLayout();
+        if (scrollView != null) scrollView.requestLayout();
 
         // Only the extracted PDF text scales with the slider; the reader chrome
         // (title, labels, hint, buttons) keeps its fixed layout size so it doesn't
