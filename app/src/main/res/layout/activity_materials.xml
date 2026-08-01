@@ -274,7 +274,6 @@
                 android:layout_height="60dp"
                 android:layout_weight="1"
                 android:layout_margin="6dp"
-                android:background="@drawable/bg_nav_active_maroon"
                 android:gravity="center"
                 android:orientation="vertical"
                 android:clickable="true"
@@ -287,7 +286,7 @@
                     android:layout_height="26dp"
                     android:contentDescription="Materials"
                     android:src="@drawable/ic_materials"
-                    app:tint="@color/color_text_on_primary" />
+                    app:tint="@color/color_primary" />
 
                 <TextView
                     android:id="@+id/textMaterials"
@@ -295,7 +294,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:text="Materials"
-                    android:textColor="@color/color_text_on_primary"
+                    android:textColor="@color/color_primary"
                     android:textSize="12sp"
                     android:textStyle="bold" />
             </LinearLayout>

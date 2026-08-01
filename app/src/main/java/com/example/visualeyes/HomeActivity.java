@@ -136,10 +136,10 @@ public class HomeActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_home);
 
-        authManager = new AuthManager(this);
-        prefs       = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        googleTts   = new GoogleTtsManager(this);
-        googleStt   = new GoogleSttManager(this);
+        authManager  = new AuthManager(this);
+        prefs        = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        googleTts    = new GoogleTtsManager(this);
+        googleStt    = new GoogleSttManager(this);
 
         bindViews();
         setActiveNav("home");

@@ -201,7 +201,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
         for (int i = 0; i < readablePerSize.length; i++) readablePerSize[i] = 0;
 
         showCurrentItem(true);
-        setStatus("Assessment is starting…");
+        setStatus("Assessment is startingÃ¢Â€Â¦");
         stopListeningSafely();
 
         handler.postDelayed(() -> {
@@ -229,7 +229,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
 
         waitingForAnswer = false;
         stopListeningSafely();
-        setStatus("Repeating question…");
+        setStatus("Repeating questionÃ¢Â€Â¦");
         speakQuestion("Repeating. Can you read this word? Please say yes or no.");
     }
 
@@ -285,13 +285,13 @@ public class TextSizeTestActivity extends AppCompatActivity {
 
         if (!NetworkUtils.hasInternet(this)) {
 
-            Log.e("STT", "No internet detected — skipping Cloud STT, using on-device recognizer.");
+            Log.e("STT", "No internet detected Ã¢Â€Â” skipping Cloud STT, using on-device recognizer.");
             startAndroidReadAloudListening(myAttempt);
             return;
         }
 
         isRecognizerListening = true;
-        setStatus("Listening for your reading…");
+        setStatus("Listening for your readingÃ¢Â€Â¦");
         googleStt.startRecording();
 
         long remaining    = readAloudDeadlineElapsed - now;
@@ -301,7 +301,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
             if (myAttempt != readAloudAttemptId) return;
             if (!isReadingWord || testFinished || answerHandled) return;
 
-            setStatus("Processing your reading…");
+            setStatus("Processing your readingÃ¢Â€Â¦");
             googleStt.stopAndRecognize("command", new GoogleSttManager.SttCallback() {
                 @Override public void onResult(String transcript) {
                     if (myAttempt != readAloudAttemptId) return;
@@ -333,7 +333,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
         try {
             isRecognizerListening = true;
             speechRecognizer.startListening(speechIntent);
-            setStatus("Listening for your reading…");
+            setStatus("Listening for your readingÃ¢Â€Â¦");
         } catch (Exception e) {
             isRecognizerListening = false;
             Log.e("STT", "read-aloud fallback startListening failed: " + e.getMessage());
@@ -346,7 +346,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
         handler.postDelayed(() -> {
             if (attemptId != readAloudAttemptId) return;
             if (isReadingWord && isRecognizerListening) {
-                Log.e("STT", "Read-aloud recognizer silent hang — forcing retry.");
+                Log.e("STT", "Read-aloud recognizer silent hang Ã¢Â€Â” forcing retry.");
                 isRecognizerListening = false;
                 try { if (speechRecognizer != null) speechRecognizer.cancel(); } catch (Exception ignored) {}
                 scheduleReadAloudRetryOrFinish();
@@ -486,19 +486,19 @@ public class TextSizeTestActivity extends AppCompatActivity {
         }
 
         if (!NetworkUtils.hasInternet(this)) {
-            Log.e("STT", "No internet detected — skipping Cloud STT, using on-device recognizer.");
+            Log.e("STT", "No internet detected Ã¢Â€Â” skipping Cloud STT, using on-device recognizer.");
             startAndroidVoiceRecognition();
             return;
         }
 
         waitingForAnswer      = true;
         isRecognizerListening = true;
-        setStatus("Listening… You may also tap Yes or No.");
+        setStatus("ListeningÃ¢Â€Â¦ You may also tap Yes or No.");
         googleStt.startRecording();
 
         handler.postDelayed(() -> {
             if (testFinished || answerHandled || !waitingForAnswer) return;
-            setStatus("Processing… You may also tap Yes or No.");
+            setStatus("ProcessingÃ¢Â€Â¦ You may also tap Yes or No.");
             googleStt.stopAndRecognize("command", new GoogleSttManager.SttCallback() {
                 @Override public void onResult(String transcript) {
                     isRecognizerListening = false;
@@ -535,7 +535,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
         }
 
         waitingForAnswer = true;
-        setStatus("Listening… You may also tap Yes or No.");
+        setStatus("ListeningÃ¢Â€Â¦ You may also tap Yes or No.");
 
         handler.postDelayed(() -> {
 
@@ -569,14 +569,14 @@ public class TextSizeTestActivity extends AppCompatActivity {
         public void onReadyForSpeech(Bundle p) {
             isRecognizerListening = true;
             if (isReadingWord) {
-                setStatus("Listening for your reading…");
+                setStatus("Listening for your readingÃ¢Â€Â¦");
             } else {
                 waitingForAnswer = true;
-                setStatus("Listening… Say yes or no, or tap a button.");
+                setStatus("ListeningÃ¢Â€Â¦ Say yes or no, or tap a button.");
             }
         }
 
-        @Override public void onBeginningOfSpeech() { setStatus("Hearing your voice…"); }
+        @Override public void onBeginningOfSpeech() { setStatus("Hearing your voiceÃ¢Â€Â¦"); }
         @Override public void onRmsChanged(float r)  {}
         @Override public void onBufferReceived(byte[] b) {}
 
@@ -584,8 +584,8 @@ public class TextSizeTestActivity extends AppCompatActivity {
         public void onEndOfSpeech() {
             isRecognizerListening = false;
             if (!answerHandled && !testFinished) {
-                setStatus(isReadingWord ? "Processing your reading…"
-                        : "Processing… You may also tap Yes or No.");
+                setStatus(isReadingWord ? "Processing your readingÃ¢Â€Â¦"
+                        : "ProcessingÃ¢Â€Â¦ You may also tap Yes or No.");
             }
         }
 
@@ -607,7 +607,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
                             handler.postDelayed(TextSizeTestActivity.this::startAndroidVoiceRecognition, RECOGNIZER_REBUILD_DELAY);
                         }
                     }, RECOGNIZER_REBUILD_DELAY);
-                    setStatus("Reconnecting microphone…");
+                    setStatus("Reconnecting microphoneÃ¢Â€Â¦");
                     return;
                 }
                 case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS: {
@@ -781,8 +781,9 @@ public class TextSizeTestActivity extends AppCompatActivity {
     }
 
     private void saveTestResultToDatabase(String recommendedSize, String impairmentLevel) {
-        AuthManager auth        = new AuthManager(this);
-        String      studentEmail = auth.getEmail();
+        AuthManager auth           = new AuthManager(this);
+        String      studentEmail   = auth.getEmail();
+        String      studentPassword = auth.getPassword();
 
         if (studentEmail == null || studentEmail.trim().isEmpty()) {
             Toast.makeText(this, "Student email not found. Saved locally only.", Toast.LENGTH_LONG).show();
@@ -792,20 +793,25 @@ public class TextSizeTestActivity extends AppCompatActivity {
 
         JSONObject body = new JSONObject();
         try {
-            body.put("impairment_level",      impairmentLevel);
-            body.put("recommended_text_size", parseSize(recommendedSize));
-            body.put("yes_count", yesCount);
-            body.put("no_count",  noCount);
+            body.put("p_email",    studentEmail);
+            body.put("p_password", studentPassword);
+            body.put("p_impairment_level",      impairmentLevel);
+            body.put("p_recommended_text_size", parseSize(recommendedSize));
+            body.put("p_yes_count", yesCount);
+            body.put("p_no_count",  noCount);
         } catch (Exception e) {
             Toast.makeText(this, "Failed to prepare result.", Toast.LENGTH_SHORT).show();
             goToNextScreen();
             return;
         }
 
-        String url     = ApiConfig.STUDENTS + "?email=eq." + android.net.Uri.encode(studentEmail);
+        // Calls the student_save_assessment RPC instead of PATCHing the students
+        // table directly â€” the function re-verifies email+password server-side,
+        // so RLS no longer needs a wide-open UPDATE policy on students for this.
+        String url     = ApiConfig.SUPABASE_URL + "/rest/v1/rpc/student_save_assessment";
         String bodyStr = body.toString();
 
-        StringRequest req = new StringRequest(Request.Method.PATCH, url,
+        StringRequest req = new StringRequest(Request.Method.POST, url,
                 response -> {
                     Toast.makeText(this, "Assessment saved.", Toast.LENGTH_SHORT).show();
                     goToNextScreen();
@@ -829,7 +835,6 @@ public class TextSizeTestActivity extends AppCompatActivity {
                 h.put("Authorization", "Bearer " + ApiConfig.SUPABASE_KEY);
                 h.put("Content-Type",  "application/json");
                 h.put("Accept",        "application/json");
-                h.put("Prefer",        "return=minimal");
                 return h;
             }
         };

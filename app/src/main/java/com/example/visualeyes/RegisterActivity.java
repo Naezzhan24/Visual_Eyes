@@ -1079,15 +1079,14 @@ public class RegisterActivity extends AppCompatActivity {
 
         JSONObject jsonBody = new JSONObject();
         try {
-            jsonBody.put("first_name",      firstName);
-            jsonBody.put("middle_name",     middleName);
-            jsonBody.put("last_name",       lastName);
-            jsonBody.put("age",             Integer.parseInt(userAge));
-            jsonBody.put("year_level",      yearLevelVal);
-            jsonBody.put("school_id",       schoolId);
-            jsonBody.put("email",           userEmail);
-            jsonBody.put("password",        userPassword);
-            jsonBody.put("approval_status", "pending");
+            jsonBody.put("p_first_name",  firstName);
+            jsonBody.put("p_middle_name", middleName);
+            jsonBody.put("p_last_name",   lastName);
+            jsonBody.put("p_age",         Integer.parseInt(userAge));
+            jsonBody.put("p_year_level",  yearLevelVal);
+            jsonBody.put("p_school_id",   schoolId);
+            jsonBody.put("p_email",       userEmail);
+            jsonBody.put("p_password",    userPassword);
         } catch (Exception e) {
             continueBtn.setEnabled(true);
             voiceRegisterBtn.setEnabled(true);
@@ -1096,9 +1095,19 @@ public class RegisterActivity extends AppCompatActivity {
             return;
         }
 
+        // Calls the student_register RPC instead of inserting into the students
+        // table directly. A direct INSERT with "Prefer: return=representation"
+        // requires Supabase to SELECT the new row back afterward to include it
+        // in the response — and that SELECT now has no RLS policy to pass (the
+        // wide-open one was intentionally removed as part of the students-table
+        // security fix), which was silently failing the whole request and
+        // rolling back the insert. The RPC's own RETURNING clause runs inside
+        // its SECURITY DEFINER context and doesn't need a separate policy.
+        String url = ApiConfig.SUPABASE_URL + "/rest/v1/rpc/student_register";
+
         StringRequest request = new StringRequest(
                 Request.Method.POST,
-                ApiConfig.STUDENTS,
+                url,
                 response -> {
                     continueBtn.setEnabled(true);
                     voiceRegisterBtn.setEnabled(true);
@@ -1151,7 +1160,6 @@ public class RegisterActivity extends AppCompatActivity {
                 headers.put("Authorization", "Bearer " + ApiConfig.SUPABASE_KEY);
                 headers.put("Content-Type",  "application/json");
                 headers.put("Accept",        "application/json");
-                headers.put("Prefer",        "return=representation");
                 return headers;
             }
         };

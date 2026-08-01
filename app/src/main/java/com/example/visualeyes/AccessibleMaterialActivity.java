@@ -76,7 +76,9 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
             "increase text", "bigger text", "larger text", "lakihan", "palakihin",
             "decrease text", "smaller text", "reduce text", "liitan", "paliitin",
             "faster", "increase speed", "speed up", "bilisan",
-            "slower", "decrease speed", "slow down", "bagalan"
+            "slower", "decrease speed", "slow down", "bagalan",
+            "next", "next paragraph", "continue", "susunod",
+            "repeat", "again", "say again", "ulit"
     };
 
     private TextView txtVoiceStatus, txtReaderTitle, txtReaderInfo, txtReaderContent, txtCurrentSize;
@@ -90,6 +92,8 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private final List<TextView> bodyTextViews    = new ArrayList<>();
     private final List<TextView> captionTextViews = new ArrayList<>();
     private final List<View>     blockViews       = new ArrayList<>();
+    private int highlightedBlockIndex = -1;
+    private static final int READ_ALOUD_HIGHLIGHT_COLOR = 0x40FFC107;
 
     private String materialId    = "";
     private String fileUrl       = "";
@@ -110,6 +114,8 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private       ArrayList<ReaderBlock> chunks = new ArrayList<>();
     private       int           currentChunkIndex = 0;
     private       int           paragraphNumber   = 1;
+    private       int           lastReadChunkIndex     = -1;
+    private       int           lastReadParagraphNumber = 1;
 
     private boolean ttsReady       = false;
     private boolean isListening    = false;
@@ -117,6 +123,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private boolean isTtsSpeaking  = false;
     private boolean recognizerReady= false;
     private boolean materialLoaded = false;
+    private boolean awaitingChunkDecision = false;
 
     private float speechRate = 0.85f;
     private float startY     = 0f;
@@ -464,11 +471,27 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
      */
     private CharSequence styleChunkText(String chunkText, List<StyleRun> runs, int[] runIndexHolder,
                                          float headingThreshold) {
-        if (chunkText == null || chunkText.isEmpty() || runs.isEmpty()) return chunkText;
+        return styleChunkText(chunkText, runs, runIndexHolder, headingThreshold, null);
+    }
+
+    /**
+     * Same as above, but also reports whether the chunk as a whole should be
+     * treated as a heading block (not just individually-bolded characters) —
+     * i.e. most of the chunk's matched text came from heading-sized style runs.
+     * Needed so headers can be announced as "Heading" during TTS reading and
+     * rendered without paragraph justification, not just bolded inline.
+     */
+    private CharSequence styleChunkText(String chunkText, List<StyleRun> runs, int[] runIndexHolder,
+                                         float headingThreshold, boolean[] isHeadingOut) {
+        if (chunkText == null || chunkText.isEmpty() || runs.isEmpty()) {
+            if (isHeadingOut != null) isHeadingOut[0] = false;
+            return chunkText;
+        }
 
         SpannableString spannable = new SpannableString(chunkText);
         int cursor = 0;
         boolean matchedAny = false;
+        int headingChars = 0;
 
         while (runIndexHolder[0] < runs.size()) {
             StyleRun run = runs.get(runIndexHolder[0]);
@@ -491,10 +514,16 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
             if (isHeading) {
                 spannable.setSpan(new RelativeSizeSpan(1.15f), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 spannable.setSpan(new ForegroundColorSpan(0xFF6E3142), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                headingChars += (end - start);
             }
             cursor = end;
             matchedAny = true;
             runIndexHolder[0]++;
+        }
+
+        if (isHeadingOut != null) {
+            int textLen = chunkText.trim().length();
+            isHeadingOut[0] = textLen > 0 && headingChars >= textLen * 0.6;
         }
 
         return matchedAny ? spannable : chunkText;
@@ -506,12 +535,17 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         CharSequence text;
         Bitmap image;
         String caption;
+        boolean isHeading;
 
         private ReaderBlock(Type type) { this.type = type; }
 
         static ReaderBlock text(CharSequence text) {
+            return text(text, false);
+        }
+        static ReaderBlock text(CharSequence text, boolean isHeading) {
             ReaderBlock b = new ReaderBlock(Type.TEXT);
-            b.text = text;
+            b.text      = text;
+            b.isHeading = isHeading;
             return b;
         }
         static ReaderBlock image(Bitmap image, String caption) {
@@ -646,7 +680,9 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         if (imagesByPage.isEmpty()) {
             int[] runIndex = {0};
             for (String chunk : chunks) {
-                blocks.add(ReaderBlock.text(styleChunkText(chunk, runs, runIndex, headingThreshold)));
+                boolean[] headingHolder = {false};
+                CharSequence styled = styleChunkText(chunk, runs, runIndex, headingThreshold, headingHolder);
+                blocks.add(ReaderBlock.text(styled, headingHolder[0]));
             }
             return blocks;
         }
@@ -716,9 +752,10 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
                     if (!iwc.trailingText.isEmpty()) blocks.add(ReaderBlock.text(iwc.trailingText));
                 }
             }
-            CharSequence styled = styleChunkText(chunks.get(j), runs, runIndex, headingThreshold);
+            boolean[] headingHolder = {false};
+            CharSequence styled = styleChunkText(chunks.get(j), runs, runIndex, headingThreshold, headingHolder);
             if (!consumed[j]) {
-                blocks.add(ReaderBlock.text(styled));
+                blocks.add(ReaderBlock.text(styled, headingHolder[0]));
             }
         }
         for (ImageWithCaption iwc : unmatched) blocks.add(ReaderBlock.image(iwc.bitmap, iwc.caption));
@@ -735,6 +772,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         blockViews.clear();
         bodyTextViews.clear();
         captionTextViews.clear();
+        highlightedBlockIndex = -1;
 
         txtReaderContent.setVisibility(View.VISIBLE);
         txtReaderContent.setText(text);
@@ -747,6 +785,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         blockViews.clear();
         bodyTextViews.clear();
         captionTextViews.clear();
+        highlightedBlockIndex = -1;
 
         for (ReaderBlock block : blocks) {
             if (block.type == ReaderBlock.Type.TEXT) {
@@ -754,11 +793,16 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
                 tv.setTextColor(0xFF2F2A2C);
                 tv.setLineSpacing(10f, 1.2f);
                 tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, recommendedTextSize);
-                tv.setJustificationMode(android.text.Layout.JUSTIFICATION_MODE_INTER_WORD);
+                // Headings read oddly when stretched to fill the line width —
+                // justification is for body prose, not short heading lines.
+                if (!block.isHeading) {
+                    tv.setJustificationMode(android.text.Layout.JUSTIFICATION_MODE_INTER_WORD);
+                }
                 tv.setText(block.text);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 lp.bottomMargin = dp(12);
+                if (block.isHeading) lp.topMargin = dp(10);
                 tv.setLayoutParams(lp);
 
                 contentContainer.addView(tv);
@@ -819,14 +863,16 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
             @Override public void onStart(String id) {
                 isTtsSpeaking = true;
+                if ("CHUNK".equals(id)) highlightChunk(lastReadChunkIndex);
                 runOnUiThread(() -> setVoiceStatus("Voice: speaking..."));
             }
 
             @Override public void onDone(String id) {
                 isTtsSpeaking = false;
+                clearChunkHighlight();
                 runOnUiThread(() -> {
                     if ("CHUNK".equals(id) && isReading) {
-                        handler.postDelayed(nextChunkRunnable, 250);
+                        askChunkDecision();
                     } else {
 
                         restartListeningDelayed(400);
@@ -836,6 +882,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
 
             @Override public void onError(String id) {
                 isTtsSpeaking = false;
+                clearChunkHighlight();
                 runOnUiThread(() -> restartListeningDelayed(500));
             }
         });
@@ -851,9 +898,10 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         String msg = "Opened learning material. " +
                 "Please wait while the content loads. " +
                 "When ready, say yes to start reading. " +
+                "After each paragraph, I will ask you to say next to continue, " +
+                "repeat to hear it again, or faster or slower to change reading speed. " +
                 "Say no or stop to pause. " +
                 "Say increase text or decrease text to adjust the font size. " +
-                "Say faster or slower to change reading speed. " +
                 "Say instruction to hear this guide again. " +
                 "Say feedback to leave feedback on this material. " +
                 "Say back to return to the materials screen.";
@@ -1069,6 +1117,14 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         String cmd = normalizeCommand(command);
         setVoiceStatus("Heard: " + cmd);
 
+        if (awaitingChunkDecision) {
+            if (isNextCommand(cmd))        { awaitingChunkDecision = false; readNextChunk();      return; }
+            if (isRepeatChunkCommand(cmd)) { awaitingChunkDecision = false; repeatCurrentChunk();  return; }
+            if (isFasterCommand(cmd))      { awaitingChunkDecision = false; increaseSpeed(); repeatCurrentChunk(); return; }
+            if (isSlowerCommand(cmd))      { awaitingChunkDecision = false; decreaseSpeed(); repeatCurrentChunk(); return; }
+            awaitingChunkDecision = false; // fall through — let stop/back/feedback/instruction/yes handle it below
+        }
+
         if (isInstructionCommand(cmd))  { speakInstructionsAndAsk(); return; }
         if (isBackCommand(cmd))         { handleBackAction();         return; }
         if (isRestartCommand(cmd))      { startReading();    return; }
@@ -1094,7 +1150,8 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         }
 
         if (isNoOrStopCommand(cmd)) {
-            isReading = false;
+            isReading             = false;
+            awaitingChunkDecision = false;
             handler.removeCallbacks(nextChunkRunnable);
             if (tts != null) tts.stop();
             speakNow("Reading stopped. Say yes to resume.", "STOP_MSG");
@@ -1163,6 +1220,13 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         return c.contains("slower") || c.contains("decrease speed") || c.contains("slow down")
                 || c.contains("bagalan");
     }
+    private boolean isNextCommand(String c) {
+        return c.equals("next") || c.contains("next paragraph") || c.contains("continue")
+                || c.contains("susunod");
+    }
+    private boolean isRepeatChunkCommand(String c) {
+        return c.contains("repeat") || c.contains("again") || c.contains("ulit");
+    }
 
     private void startReading() {
         if (!materialLoaded) {
@@ -1176,9 +1240,11 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         }
 
         if (tts != null) tts.stop();
-        isReading         = true;
-        currentChunkIndex = 0;
-        paragraphNumber   = 1;
+        isReading             = true;
+        awaitingChunkDecision = false;
+        currentChunkIndex     = 0;
+        paragraphNumber       = 1;
+        lastReadChunkIndex    = -1;
         handler.removeCallbacks(nextChunkRunnable);
         setVoiceStatus("Reading started...");
         readNextChunk();
@@ -1189,20 +1255,27 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
 
         if (currentChunkIndex >= chunks.size()) {
             isReading = false;
+            awaitingChunkDecision = false;
             currentChunkIndex = 0;
             speakNow("End of material. Say yes to read again.", "STOP_MSG");
             return;
         }
 
+        lastReadChunkIndex = currentChunkIndex;
         ReaderBlock block = chunks.get(currentChunkIndex);
         scrollToChunk(currentChunkIndex);
         stopListeningSafe();
 
         String spoken;
         if (block.type == ReaderBlock.Type.TEXT) {
+            lastReadParagraphNumber = paragraphNumber;
             String bodyText = block.text != null ? block.text.toString() : "";
-            spoken = "Paragraph " + paragraphNumber + ". " + bodyText;
-            paragraphNumber++;
+            if (block.isHeading) {
+                spoken = "Heading. " + bodyText;
+            } else {
+                spoken = "Paragraph " + paragraphNumber + ". " + bodyText;
+                paragraphNumber++;
+            }
         } else {
             spoken = "Image. " + (block.caption != null && !block.caption.trim().isEmpty()
                     ? block.caption : "No description available.");
@@ -1218,6 +1291,32 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         currentChunkIndex++;
     }
 
+    /** Repeats whichever chunk was last spoken (used by the post-paragraph "repeat"/"faster"/"slower" prompt). */
+    private void repeatCurrentChunk() {
+        if (lastReadChunkIndex < 0) return;
+        currentChunkIndex = lastReadChunkIndex;
+        paragraphNumber   = lastReadParagraphNumber;
+        isReading = true;
+        readNextChunk();
+    }
+
+    /** Asks the user whether to move on, repeat, or change speed after finishing a paragraph, then listens for the answer. */
+    private void askChunkDecision() {
+        if (!isReading) return;
+        awaitingChunkDecision = true;
+        if (tts != null) {
+            tts.stop();
+            tts.speak("Say next, repeat, faster, or slower.", TextToSpeech.QUEUE_FLUSH, null, "CHUNK_PROMPT");
+        }
+    }
+
+    // PDFBox's blank-line paragraph detection is unreliable — many PDFs never
+    // emit a blank line between paragraphs, so the whole page can come back as
+    // one giant "paragraph". Rather than shattering that into single-sentence
+    // chunks (which reads and displays as a choppy sentence list, not prose),
+    // group consecutive sentences up to this size into one paragraph-sized chunk.
+    private static final int MAX_CHUNK_CHARS = 600;
+
     private ArrayList<String> splitIntoSmartChunks(String text) {
         ArrayList<String> result = new ArrayList<>();
         if (text == null || text.trim().isEmpty()) return result;
@@ -1228,16 +1327,62 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         for (String para : paragraphs) {
             para = para.trim();
             if (para.isEmpty()) continue;
-            if (para.length() > 220) {
-                for (String s : para.split("(?<=[.!?])\\s+")) {
-                    String clean = s.trim();
-                    if (!clean.isEmpty()) result.add(clean);
-                }
+            if (para.length() > MAX_CHUNK_CHARS) {
+                result.addAll(groupSentencesIntoChunks(para, MAX_CHUNK_CHARS));
             } else {
                 result.add(para);
             }
         }
         return result;
+    }
+
+    /** Packs consecutive sentences into chunks up to maxChars, so an overlong
+     *  paragraph still reads/displays as prose rather than one sentence at a time. */
+    private List<String> groupSentencesIntoChunks(String paragraph, int maxChars) {
+        List<String> chunks = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+
+        for (String sentence : paragraph.split("(?<=[.!?])\\s+")) {
+            String s = sentence.trim();
+            if (s.isEmpty()) continue;
+
+            if (current.length() > 0 && current.length() + 1 + s.length() > maxChars) {
+                chunks.add(current.toString());
+                current.setLength(0);
+            }
+            if (current.length() > 0) current.append(' ');
+            current.append(s);
+
+            if (current.length() >= maxChars) {
+                chunks.add(current.toString());
+                current.setLength(0);
+            }
+        }
+        if (current.length() > 0) chunks.add(current.toString());
+        return chunks;
+    }
+
+    /** Highlights the block currently being read aloud, clearing whichever one was highlighted before. */
+    private void highlightChunk(int index) {
+        runOnUiThread(() -> {
+            clearChunkHighlightInternal();
+            if (index < 0 || index >= blockViews.size()) return;
+            View v = blockViews.get(index);
+            if (v != null) v.setBackgroundColor(READ_ALOUD_HIGHLIGHT_COLOR);
+            highlightedBlockIndex = index;
+        });
+    }
+
+    private void clearChunkHighlight() {
+        runOnUiThread(this::clearChunkHighlightInternal);
+    }
+
+    private void clearChunkHighlightInternal() {
+        if (highlightedBlockIndex >= 0 && highlightedBlockIndex < blockViews.size()) {
+            View v = blockViews.get(highlightedBlockIndex);
+            if (v != null) v.setBackgroundColor(0x00000000);
+        }
+        highlightedBlockIndex = -1;
     }
 
     private void scrollToChunk(int index) {
@@ -1399,8 +1544,9 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private void decreaseTextSize() { applyTextSize(recommendedTextSize - 2, true); }
 
     private void handleBackAction() {
-        isReading     = false;
-        isTtsSpeaking = false;
+        isReading             = false;
+        isTtsSpeaking         = false;
+        awaitingChunkDecision = false;
         handler.removeCallbacks(nextChunkRunnable);
         handler.removeCallbacks(restartListeningRunnable);
         stopListeningSafe();

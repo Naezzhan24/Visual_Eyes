@@ -332,7 +332,6 @@
                     android:layout_height="60dp"
                     android:layout_weight="1"
                     android:layout_margin="6dp"
-                    android:background="@drawable/bg_nav_active_maroon"
                     android:clickable="true"
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackground"
@@ -345,7 +344,7 @@
                         android:layout_height="24dp"
                         android:contentDescription="Home"
                         android:src="@drawable/ic_home"
-                        app:tint="@color/color_text_on_primary" />
+                        app:tint="@color/color_primary" />
 
                     <TextView
                         android:id="@+id/textHome"
@@ -353,7 +352,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:text="Home"
-                        android:textColor="@color/color_text_on_primary"
+                        android:textColor="@color/color_primary"
                         android:textSize="12sp"
                         android:textStyle="bold" />
                 </LinearLayout>

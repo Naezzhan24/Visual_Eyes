@@ -119,6 +119,10 @@ public class AuthManager {
         return sharedPreferences.getString(KEY_EMAIL, "");
     }
 
+    public String getPassword() {
+        return sharedPreferences.getString(KEY_PASSWORD, "");
+    }
+
     public String getSchoolId() {
         return sharedPreferences.getString(KEY_SCHOOL_ID, "");
     }
