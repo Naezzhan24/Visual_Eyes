@@ -636,15 +636,18 @@ public class HomeActivity extends AppCompatActivity {
         startNavTransition(intent);
     }
 
+    private static final long NAV_TRANSITION_FADE_MS   = 180L;
+    private static final long NAV_TRANSITION_FINISH_MS = 240L;
+
     /** Content (and window background) fades between screens as usual, but the
      *  bottom nav bar is shared across Home/Materials/Profile's layouts via the
      *  same transitionName, so the OS treats it as one continuous view instead
      *  of animating it away with the rest of the outgoing screen. */
     private void setupNavTransitions() {
-        getWindow().setExitTransition(new Fade());
-        getWindow().setEnterTransition(new Fade());
-        getWindow().setReenterTransition(new Fade());
-        getWindow().setReturnTransition(new Fade());
+        getWindow().setExitTransition(new Fade().setDuration(NAV_TRANSITION_FADE_MS));
+        getWindow().setEnterTransition(new Fade().setDuration(NAV_TRANSITION_FADE_MS));
+        getWindow().setReenterTransition(new Fade().setDuration(NAV_TRANSITION_FADE_MS));
+        getWindow().setReturnTransition(new Fade().setDuration(NAV_TRANSITION_FADE_MS));
     }
 
     private void startNavTransition(Intent intent) {
@@ -655,7 +658,10 @@ public class HomeActivity extends AppCompatActivity {
         } else {
             startActivity(intent);
         }
-        finish();
+        // Finishing immediately tears this window down before the shared-element
+        // crossfade finishes compositing with the destination window, which is
+        // what caused the black-flash/launcher-peek glitch. Let it finish first.
+        handler.postDelayed(this::finish, NAV_TRANSITION_FINISH_MS);
     }
 
     private void loadLatestMaterial() {

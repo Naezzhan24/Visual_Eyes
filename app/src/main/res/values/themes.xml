@@ -7,6 +7,11 @@
              Home/Materials/Profile — lets it stay visually anchored while
              only the rest of the screen transitions. -->
         <item name="android:windowActivityTransitions">true</item>
+        <!-- Without this, the window's default background (not this app's
+             actual background color) can flash briefly during the shared-
+             element crossfade, which is what made backgrounds outside the
+             app momentarily visible during the transition. -->
+        <item name="android:windowBackground">@color/color_background</item>
     </style>
 
     <style name="Theme.VisualEyes" parent="Base.Theme.VisualEyes" />
