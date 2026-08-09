@@ -13,7 +13,6 @@ import android.os.Vibrator;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
-import android.transition.Fade;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -887,18 +886,20 @@ public class MaterialsActivity extends AppCompatActivity {
         startNavTransition(new Intent(this, ProfileActivity.class));
     }
 
-    private static final long NAV_TRANSITION_FADE_MS   = 180L;
-    private static final long NAV_TRANSITION_FINISH_MS = 240L;
+    // Default shared-element transition duration is ~300ms; finish() has to
+    // outlast that or the outgoing window gets torn down mid-crossfade.
+    private static final long NAV_TRANSITION_FINISH_MS = 350L;
 
-    /** Content (and window background) fades between screens as usual, but the
-     *  bottom nav bar is shared across Home/Materials/Profile's layouts via the
-     *  same transitionName, so the OS treats it as one continuous view instead
-     *  of animating it away with the rest of the outgoing screen. */
+    /** No explicit content transition — the extra Fade() layered on top of the
+     *  shared-element move was the likely cause of the black-flash/lag glitch
+     *  (window animation type conflict). Leaving content transitions unset
+     *  keeps only the shared-element move, which is the well-supported path:
+     *  the nav bar bounds-animates continuously, content just cuts underneath. */
     private void setupNavTransitions() {
-        getWindow().setExitTransition(new Fade().setDuration(NAV_TRANSITION_FADE_MS));
-        getWindow().setEnterTransition(new Fade().setDuration(NAV_TRANSITION_FADE_MS));
-        getWindow().setReenterTransition(new Fade().setDuration(NAV_TRANSITION_FADE_MS));
-        getWindow().setReturnTransition(new Fade().setDuration(NAV_TRANSITION_FADE_MS));
+        getWindow().setExitTransition(null);
+        getWindow().setEnterTransition(null);
+        getWindow().setReenterTransition(null);
+        getWindow().setReturnTransition(null);
     }
 
     private void startNavTransition(Intent intent) {
