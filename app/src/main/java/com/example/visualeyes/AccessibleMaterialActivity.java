@@ -128,6 +128,12 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private boolean recognizerReady= false;
     private boolean materialLoaded = false;
     private boolean awaitingChunkDecision = false;
+    private boolean pausedForBackground   = false;
+
+    // Set by speakNow() when TTS init hasn't finished yet, so the announcement
+    // isn't silently dropped — onInit() flushes it once ttsReady becomes true.
+    private String pendingAnnouncementText = null;
+    private String pendingAnnouncementId   = null;
 
     private float speechRate = 0.85f;
     private float startY     = 0f;
@@ -231,7 +237,19 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     protected void onResume() {
         super.onResume();
         if (txtReaderContent != null && !hasIntentTextSize) applyTextSize((int) FontSizeManager.getFontSize(this), false);
-        if (!isTtsSpeaking && !isReading) restartListeningDelayed(700);
+
+        if (pausedForBackground) {
+            // A read (or the "say next/repeat" prompt between paragraphs) was
+            // interrupted by backgrounding. isReading was already forced false
+            // in onPause() so this branch, not the generic restart below, is
+            // what brings voice control back — otherwise the mic never
+            // restarts and the reader is stuck until the user taps Continue.
+            pausedForBackground = false;
+            setVoiceStatus("Reading paused");
+            speakNow("Reading paused. Say yes to continue, or say instruction for help.", "STOP_MSG");
+        } else if (!isTtsSpeaking && !isReading) {
+            restartListeningDelayed(700);
+        }
     }
 
     @Override
@@ -240,6 +258,15 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         handler.removeCallbacks(restartListeningRunnable);
         handler.removeCallbacks(nextChunkRunnable);
         stopListeningSafe();
+
+        // A read session in progress (actively speaking a chunk, or waiting on
+        // the "say next/repeat" prompt between chunks — isReading covers both)
+        // gets cut off here. Without resetting isReading/awaitingChunkDecision,
+        // onResume's restart check never fires and the reader is left stranded
+        // with no way to recover by voice.
+        if (isReading) pausedForBackground = true;
+        isReading             = false;
+        awaitingChunkDecision = false;
 
         // Navigating away (e.g. the "feedback" voice command opens FeedbackActivity
         // without finishing this one) leaves this activity paused, not destroyed —
@@ -285,15 +312,28 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
 
                 String finalUrl = fileUrl.trim().replace(" ", "%20");
                 if (!finalUrl.startsWith("http://") && !finalUrl.startsWith("https://")) {
-                    throw new Exception("Invalid URL format: " + finalUrl);
+                    throw new MaterialLoadException(MaterialLoadException.Stage.NETWORK,
+                            "Invalid URL format: " + finalUrl);
                 }
 
-                byte[] pdfBytes = downloadWithRedirects(finalUrl, 5);
+                byte[] pdfBytes;
+                try {
+                    pdfBytes = downloadWithRedirects(finalUrl, 5);
+                } catch (Exception e) {
+                    throw new MaterialLoadException(MaterialLoadException.Stage.NETWORK, e.getMessage());
+                }
                 if (pdfBytes == null || pdfBytes.length == 0) {
-                    throw new Exception("Downloaded file is empty. Check the URL.");
+                    throw new MaterialLoadException(MaterialLoadException.Stage.NETWORK,
+                            "Downloaded file is empty. Check the URL.");
                 }
 
-                document = PDDocument.load(pdfBytes);
+                try {
+                    document = PDDocument.load(pdfBytes);
+                } catch (com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException e) {
+                    throw new MaterialLoadException(MaterialLoadException.Stage.PASSWORD, e.getMessage());
+                } catch (Exception e) {
+                    throw new MaterialLoadException(MaterialLoadException.Stage.CORRUPT, e.getMessage());
+                }
 
                 PDFTextStripper stripper = new PDFTextStripper();
                 stripper.setSortByPosition(true);
@@ -333,17 +373,39 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
                         materialLoaded  = true;
                         content         = finalText;
                         chunks          = new ArrayList<>(readerBlocks);
-                        currentChunkIndex = 0;
+
+                        // Resume where the student left off (persists across app
+                        // restarts, not just this session) instead of always
+                        // restarting from chunk 0.
+                        int savedIndex = MaterialReadTracker.getLastChunkIndex(this, materialId);
+                        currentChunkIndex = (savedIndex > 0 && savedIndex < chunks.size()) ? savedIndex : 0;
+                        lastReadChunkIndex = -1;
+                        paragraphNumber = 1;
 
                         txtReaderTitle.setText(title);
                         renderReaderBlocks(chunks);
                         applyTextSize(recommendedTextSize, false);
 
                         setVoiceStatus("Loaded — " + chunks.size() + " sections");
-                        speakNow("Material loaded. Say yes to start reading, or say instruction for help.", "STOP_MSG");
+                        if (currentChunkIndex > 0) {
+                            speakNow("Material loaded. You have unfinished reading — say yes to " +
+                                    "continue where you left off, or say restart to begin from the start.", "STOP_MSG");
+                        } else {
+                            speakNow("Material loaded. Say yes to start reading, or say instruction for help.", "STOP_MSG");
+                        }
                     }
                 });
 
+            } catch (MaterialLoadException e) {
+                final String spokenMsg  = e.spokenMessage();
+                final String displayMsg = e.displayMessage(fileUrl);
+                runOnUiThread(() -> {
+                    materialLoaded = false;
+                    content = displayMsg;
+                    UiAnim.crossfadeText(txtReaderContent, content);
+                    setVoiceStatus("Load failed");
+                    speakNow(spokenMsg, "STOP_MSG");
+                });
             } catch (Exception e) {
                 final String msg = e.getMessage();
                 runOnUiThread(() -> {
@@ -361,6 +423,38 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
                 executor.shutdown();
             }
         });
+    }
+
+    /** Distinguishes why a material failed to load so the spoken/displayed
+     *  message tells the user (and teacher) something accurate — a corrupt or
+     *  password-protected file isn't a connection problem. */
+    private static class MaterialLoadException extends Exception {
+        enum Stage { NETWORK, PASSWORD, CORRUPT }
+        final Stage stage;
+
+        MaterialLoadException(Stage stage, String message) {
+            super(message);
+            this.stage = stage;
+        }
+
+        String spokenMessage() {
+            switch (stage) {
+                case PASSWORD: return "This material is password protected and can't be opened. " +
+                        "Please ask your teacher for an unprotected copy.";
+                case CORRUPT:  return "This material's file appears to be damaged or unsupported. " +
+                        "Please ask your teacher for another copy.";
+                default:       return "Could not load the material. Please check your connection and try again.";
+            }
+        }
+
+        String displayMessage(String fileUrl) {
+            switch (stage) {
+                case PASSWORD: return "This material is password-protected and cannot be opened.\n\nURL: " + fileUrl;
+                case CORRUPT:  return "This material's file appears to be damaged or unsupported.\n\n"
+                        + "Reason: " + getMessage() + "\n\nURL: " + fileUrl;
+                default:       return "Could not load the material.\n\nReason: " + getMessage() + "\n\nURL: " + fileUrl;
+            }
+        }
     }
 
     private byte[] downloadWithRedirects(String urlString, int maxRedirects) throws Exception {
@@ -882,6 +976,19 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         ttsReady = true;
         tts.setPitch(1.0f);
         tts.setSpeechRate(speechRate);
+        setupUtteranceListener();
+
+        if (pendingAnnouncementText != null) {
+            String text = pendingAnnouncementText, id = pendingAnnouncementId;
+            pendingAnnouncementText = null;
+            pendingAnnouncementId   = null;
+            speakNow(text, id);
+        } else {
+            speakInstructionsAndAsk();
+        }
+    }
+
+    private void setupUtteranceListener() {
 
         tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
             @Override public void onStart(String id) {
@@ -906,11 +1013,19 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
             @Override public void onError(String id) {
                 isTtsSpeaking = false;
                 clearChunkHighlight();
-                runOnUiThread(() -> restartListeningDelayed(500));
+                runOnUiThread(() -> {
+                    // Mirrors onDone(): a chunk that fails mid-speech still needs the
+                    // "say next, repeat, faster, or slower" prompt, otherwise isReading
+                    // stays true with no prompt spoken and no awaitingChunkDecision set —
+                    // the session goes silent with no way to recover by voice.
+                    if ("CHUNK".equals(id) && isReading) {
+                        askChunkDecision();
+                    } else {
+                        restartListeningDelayed(500);
+                    }
+                });
             }
         });
-
-        speakInstructionsAndAsk();
     }
 
     private void speakInstructionsAndAsk() {
@@ -934,7 +1049,15 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     }
 
     private void speakNow(String text, String utteranceId) {
-        if (!ttsReady || tts == null) return;
+        if (tts == null) return;
+        if (!ttsReady) {
+            // TTS engine init (async) hasn't finished yet — queue this instead of
+            // dropping it silently. onInit() flushes it once ready, so e.g. the
+            // "Material loaded" announcement isn't lost if extraction finishes first.
+            pendingAnnouncementText = text;
+            pendingAnnouncementId   = utteranceId;
+            return;
+        }
         stopListeningSafe();
         tts.stop();
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId);
@@ -1330,6 +1453,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
             isReading = false;
             awaitingChunkDecision = false;
             currentChunkIndex = 0;
+            MaterialReadTracker.clearChunkIndex(this, materialId);
             speakNow("End of material. Say yes to read again.", "STOP_MSG");
             return;
         }
@@ -1362,6 +1486,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         }
 
         currentChunkIndex++;
+        MaterialReadTracker.saveChunkIndex(this, materialId, currentChunkIndex);
     }
 
     /** Repeats whichever chunk was last spoken (used by the post-paragraph "repeat"/"faster"/"slower" prompt). */

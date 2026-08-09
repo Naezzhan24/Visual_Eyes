@@ -2,10 +2,23 @@ package com.example.visualeyes;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.util.Log;
+
+import androidx.security.crypto.EncryptedSharedPreferences;
+import androidx.security.crypto.MasterKey;
+
+import java.io.IOException;
+import java.security.GeneralSecurityException;
 
 public class AuthManager {
 
-    private static final String PREF_NAME = "VisualEyesPrefs";
+    private static final String TAG = "AuthManager";
+
+    // Renamed from the old plaintext "VisualEyesPrefs" file so switching to
+    // EncryptedSharedPreferences doesn't try to read old plaintext values
+    // through the encrypted codec (which would throw). Existing sessions are
+    // simply logged out once; nothing else reads the old file.
+    private static final String PREF_NAME = "VisualEyesPrefsEncrypted";
 
     private static final String KEY_STUDENT_ID = "student_id";
     private static final String KEY_FIRST_NAME = "first_name";
@@ -23,7 +36,29 @@ public class AuthManager {
     private final SharedPreferences sharedPreferences;
 
     public AuthManager(Context context) {
-        sharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        sharedPreferences = createEncryptedPrefs(context);
+    }
+
+    private static SharedPreferences createEncryptedPrefs(Context context) {
+        try {
+            MasterKey masterKey = new MasterKey.Builder(context)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build();
+
+            return EncryptedSharedPreferences.create(
+                    context,
+                    PREF_NAME,
+                    masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            );
+        } catch (GeneralSecurityException | IOException e) {
+            // Falls back to a plain (unencrypted) prefs file so login still
+            // works if the device keystore is unavailable, rather than
+            // crashing the app on every screen that touches AuthManager.
+            Log.e(TAG, "Failed to create EncryptedSharedPreferences, falling back to plain prefs", e);
+            return context.getSharedPreferences(PREF_NAME + "Fallback", Context.MODE_PRIVATE);
+        }
     }
 
     public void saveLoggedInStudent(String studentId,
