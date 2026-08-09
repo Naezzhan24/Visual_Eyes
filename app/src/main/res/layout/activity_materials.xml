@@ -45,10 +45,15 @@
     </LinearLayout>
 
     <!-- MAIN CONTENT -->
-    <ScrollView
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/swipeRefreshMaterials"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_weight="1">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
         android:fillViewport="true"
         android:overScrollMode="never">
 
@@ -213,6 +218,7 @@
 
         </LinearLayout>
     </ScrollView>
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
     <!-- BOTTOM NAV SAME AS HOME -->
     <androidx.cardview.widget.CardView

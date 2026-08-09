@@ -37,6 +37,7 @@ import androidx.cardview.widget.CardView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import com.android.volley.DefaultRetryPolicy;
 import com.android.volley.Request;
@@ -77,6 +78,7 @@ public class ProfileActivity extends AppCompatActivity {
     private SwitchCompat switchTts, switchStt;
     private Button btnRetakeAssessment, btnLogout;
     private CardView cardProfileInfo, cardImpairmentLevel, cardVoiceStatus, cardOptions, bottomNavCard;
+    private SwipeRefreshLayout swipeRefreshProfile;
     private View topBarProfile;
     private ImageView btnMenu;
 
@@ -245,6 +247,15 @@ public class ProfileActivity extends AppCompatActivity {
         animateProfileEntrance();
         fetchStudentProfileFromServer();
 
+        if (swipeRefreshProfile != null) {
+            swipeRefreshProfile.setColorSchemeColors(0xFF8C4356);
+            swipeRefreshProfile.setOnRefreshListener(() -> {
+                loadProfileData();
+                fetchStudentProfileFromServer();
+                materialsDrawer.load(authManager.getEmail(), authManager.getPassword());
+            });
+        }
+
         handler.postDelayed(() ->
                 speak("Profile screen. Your registered details and visual impairment level " +
                         "are displayed. Say a command or say help for available options.", true), 900);
@@ -286,6 +297,7 @@ public class ProfileActivity extends AppCompatActivity {
         cardVoiceStatus    = findViewById(R.id.cardVoiceStatus);
         cardOptions        = findViewById(R.id.cardOptions);
         bottomNavCard      = findViewById(R.id.bottomNavCard);
+        swipeRefreshProfile= findViewById(R.id.swipeRefreshProfile);
         btnRetakeAssessment= findViewById(R.id.btnRetakeAssessment);
         btnLogout          = findViewById(R.id.btnLogout);
     }
@@ -817,6 +829,7 @@ public class ProfileActivity extends AppCompatActivity {
 
         if (email == null || email.trim().isEmpty()) {
             Toast.makeText(this, "No saved student account.", Toast.LENGTH_LONG).show();
+            if (swipeRefreshProfile != null) swipeRefreshProfile.setRefreshing(false);
             return;
         }
 
@@ -836,6 +849,7 @@ public class ProfileActivity extends AppCompatActivity {
             bodyStr = rpcBody.toString();
         } catch (Exception e) {
             Toast.makeText(this, "Failed to prepare profile request.", Toast.LENGTH_SHORT).show();
+            if (swipeRefreshProfile != null) swipeRefreshProfile.setRefreshing(false);
             return;
         }
         final String finalBodyStr = bodyStr;
@@ -873,9 +887,14 @@ public class ProfileActivity extends AppCompatActivity {
                         updateVoiceStatus("Profile loaded.");
                     } catch (Exception e) {
                         Toast.makeText(this, "Profile error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    } finally {
+                        if (swipeRefreshProfile != null) swipeRefreshProfile.setRefreshing(false);
                     }
                 },
-                error -> Toast.makeText(this, "Failed to load profile.", Toast.LENGTH_LONG).show()
+                error -> {
+                    Toast.makeText(this, "Failed to load profile.", Toast.LENGTH_LONG).show();
+                    if (swipeRefreshProfile != null) swipeRefreshProfile.setRefreshing(false);
+                }
         ) {
             @Override
             public byte[] getBody() {

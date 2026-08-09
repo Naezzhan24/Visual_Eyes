@@ -30,6 +30,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.cardview.widget.CardView;
 import androidx.drawerlayout.widget.DrawerLayout;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import com.android.volley.DefaultRetryPolicy;
 import com.android.volley.Request;
@@ -64,6 +65,7 @@ public class HomeActivity extends AppCompatActivity {
     private TextView textHome, textMaterials, textProfile;
     private LinearLayout navHome, navMaterials, navProfile;
     private CardView cardAnnouncement, cardLearningMaterial, cardFontSizeControl, bottomNavCard;
+    private SwipeRefreshLayout swipeRefreshHome;
     private View topBar;
 
     private DrawerLayout drawerLayout;
@@ -198,6 +200,14 @@ public class HomeActivity extends AppCompatActivity {
         loadLatestMaterial();
         materialsDrawer.load(authManager.getEmail(), authManager.getPassword());
 
+        if (swipeRefreshHome != null) {
+            swipeRefreshHome.setColorSchemeColors(0xFF8C4356);
+            swipeRefreshHome.setOnRefreshListener(() -> {
+                loadLatestMaterial();
+                materialsDrawer.load(authManager.getEmail(), authManager.getPassword());
+            });
+        }
+
         handler.postDelayed(() ->
                 speak("Welcome to your home screen. " +
                         "Say help for available commands.", true), 900);
@@ -233,6 +243,7 @@ public class HomeActivity extends AppCompatActivity {
         cardLearningMaterial        = findViewById(R.id.cardLearningMaterial);
         cardFontSizeControl         = findViewById(R.id.cardFontSizeControl);
         bottomNavCard                = findViewById(R.id.bottomNavCard);
+        swipeRefreshHome             = findViewById(R.id.swipeRefreshHome);
         drawerLayout                = findViewById(R.id.drawerLayout);
         drawerMaterialsContainer    = findViewById(R.id.drawerMaterialsContainer);
         btnCloseDrawer              = findViewById(R.id.btnCloseDrawer);
@@ -634,6 +645,7 @@ public class HomeActivity extends AppCompatActivity {
             latestMaterialId = ""; latestTitle = ""; latestFileUrl = "";
             if (txtUpdateTitle != null) txtUpdateTitle.setText("No learning material available yet");
             if (txtLearningMaterialSubtitle != null) txtLearningMaterialSubtitle.setText("Please log in again to view your materials.");
+            if (swipeRefreshHome != null) swipeRefreshHome.setRefreshing(false);
             return;
         }
 
@@ -651,6 +663,7 @@ public class HomeActivity extends AppCompatActivity {
             bodyStr = rpcBody.toString();
         } catch (Exception e) {
             if (txtUpdateTitle != null) txtUpdateTitle.setText("Unable to load latest material");
+            if (swipeRefreshHome != null) swipeRefreshHome.setRefreshing(false);
             return;
         }
         final String finalBodyStr = bodyStr;
@@ -663,6 +676,7 @@ public class HomeActivity extends AppCompatActivity {
                     if (txtUpdateTitle != null) txtUpdateTitle.setText("Unable to load latest material");
                     if (txtLearningMaterialSubtitle != null) txtLearningMaterialSubtitle.setText("Check your connection and try again.");
                     updateVoiceStatus("Unable to load material.");
+                    if (swipeRefreshHome != null) swipeRefreshHome.setRefreshing(false);
                 }
         ) {
             @Override
@@ -689,6 +703,14 @@ public class HomeActivity extends AppCompatActivity {
     }
 
     private void handleMaterialResponse(JSONArray rows) {
+        try {
+            handleMaterialResponseInner(rows);
+        } finally {
+            if (swipeRefreshHome != null) swipeRefreshHome.setRefreshing(false);
+        }
+    }
+
+    private void handleMaterialResponseInner(JSONArray rows) {
         try {
             if (rows == null || rows.length() == 0) {
                 latestMaterialId = ""; latestTitle = ""; latestFileUrl = "";

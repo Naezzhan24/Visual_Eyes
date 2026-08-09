@@ -28,6 +28,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.cardview.widget.CardView;
 import androidx.drawerlayout.widget.DrawerLayout;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
@@ -50,6 +51,7 @@ public class MaterialsActivity extends AppCompatActivity {
     private CardView featuredCard, cardVoiceStatus, cardRecentList, bottomNavCard;
     private ImageView btnFeaturedOpen;
     private LinearLayout recentMaterialsContainer, navHome, navMaterials, navProfile;
+    private SwipeRefreshLayout swipeRefreshMaterials;
     private View topBar;
     private ImageView btnMenu;
 
@@ -146,6 +148,17 @@ public class MaterialsActivity extends AppCompatActivity {
         buildSpeechIntent();
         loadMaterials();
         checkMicPermission();
+
+        if (swipeRefreshMaterials != null) {
+            swipeRefreshMaterials.setColorSchemeColors(0xFF8C4356);
+            swipeRefreshMaterials.setOnRefreshListener(() -> {
+                loadMaterials();
+                if (materialsDrawer != null) {
+                    AuthManager auth = new AuthManager(this);
+                    materialsDrawer.load(auth.getEmail(), auth.getPassword());
+                }
+            });
+        }
     }
 
     private void bindViews() {
@@ -159,6 +172,7 @@ public class MaterialsActivity extends AppCompatActivity {
         cardVoiceStatus          = findViewById(R.id.cardVoiceStatus);
         cardRecentList           = findViewById(R.id.cardRecentList);
         bottomNavCard            = findViewById(R.id.bottomNavCard);
+        swipeRefreshMaterials    = findViewById(R.id.swipeRefreshMaterials);
         btnFeaturedOpen          = findViewById(R.id.btnFeaturedOpen);
         recentMaterialsContainer = findViewById(R.id.recentMaterialsContainer);
         navHome                  = findViewById(R.id.navHome);
@@ -645,6 +659,7 @@ public class MaterialsActivity extends AppCompatActivity {
             if (txtFeaturedTitle != null) txtFeaturedTitle.setText("No learning material yet");
             if (txtWelcome != null) txtWelcome.setText("Please log in again to view your materials.");
             applyFontSize();
+            if (swipeRefreshMaterials != null) swipeRefreshMaterials.setRefreshing(false);
             return;
         }
 
@@ -665,6 +680,7 @@ public class MaterialsActivity extends AppCompatActivity {
         } catch (Exception e) {
             if (txtFeaturedTitle != null) txtFeaturedTitle.setText("Unable to read materials");
             applyFontSize();
+            if (swipeRefreshMaterials != null) swipeRefreshMaterials.setRefreshing(false);
             return;
         }
         final String finalBodyStr = bodyStr;
@@ -701,6 +717,8 @@ public class MaterialsActivity extends AppCompatActivity {
                         if (txtFeaturedTitle != null) txtFeaturedTitle.setText("Unable to read materials");
                         updateVoiceStatus("Parsing error.");
                         applyFontSize();
+                    } finally {
+                        if (swipeRefreshMaterials != null) swipeRefreshMaterials.setRefreshing(false);
                     }
                 },
                 error -> {
@@ -708,6 +726,7 @@ public class MaterialsActivity extends AppCompatActivity {
                     if (txtWelcome != null) txtWelcome.setText("Unable to load learning materials.");
                     updateVoiceStatus("Connection failed.");
                     applyFontSize();
+                    if (swipeRefreshMaterials != null) swipeRefreshMaterials.setRefreshing(false);
                 }
         ) {
             @Override

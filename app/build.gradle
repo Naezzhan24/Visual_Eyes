@@ -78,6 +78,7 @@ dependencies {
     implementation libs.material
     implementation libs.activity
     implementation libs.constraintlayout
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
 
     // 🔥 PDF Reader
     implementation 'com.tom-roush:pdfbox-android:2.0.27.0'
