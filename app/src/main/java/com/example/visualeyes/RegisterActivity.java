@@ -619,7 +619,12 @@ public class RegisterActivity extends AppCompatActivity {
         hasProcessedSpeech = false;
         isListening         = true;
 
-        String mode = sttModeForField(currentFieldIndex);
+        // While correcting a letter, the utterance is a short instruction
+        // ("letter 1", "double L") rather than an actual name — using the
+        // name field's mode here would keep Cloud STT's name-phrase boost
+        // active and bias it away from correctly hearing that instruction.
+        String mode = (isAwaitingLetterPosition || isAwaitingLetterValue)
+                ? "command" : sttModeForField(currentFieldIndex);
         cascadeSession.cascade(this, mode, getFieldName(currentFieldIndex), new SttCascadeSession.Listener() {
             @Override public void onListeningStarted() {
                 if (mySession != voiceSessionId) return;
@@ -1026,7 +1031,13 @@ public class RegisterActivity extends AppCompatActivity {
                 .replace("first", "1").replace("second", "2").replace("third", "3")
                 .replace("fourth", "4").replace("fifth", "5").replace("sixth", "6")
                 .replace("seventh", "7").replace("eighth", "8").replace("ninth", "9")
-                .replace("tenth", "10");
+                .replace("tenth", "10")
+                // Filipino number words, since the rest of the voice flow is
+                // bilingual (e.g. "sige", "oo", "ulit" elsewhere in this file).
+                .replace("isa", "1").replace("dalawa", "2").replace("tatlo", "3")
+                .replace("apat", "4").replace("lima", "5").replace("anim", "6")
+                .replace("pito", "7").replace("walo", "8").replace("siyam", "9")
+                .replace("sampu", "10");
         normalized = convertNumberWords(normalized);
         String digits = normalized.replaceAll("[^0-9]", "");
         if (digits.isEmpty()) return -1;
