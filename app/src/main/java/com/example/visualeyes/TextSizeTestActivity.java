@@ -2,7 +2,6 @@ package com.example.visualeyes;
 
 import android.Manifest;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -15,9 +14,9 @@ import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.annotation.NonNull;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
 
 import com.android.volley.DefaultRetryPolicy;
 import com.android.volley.Request;
@@ -39,10 +38,13 @@ public class TextSizeTestActivity extends AppCompatActivity {
     private TextView txtStep, txtInstruction, txtWord, txtStatus;
     private Button btnStart, btnYes, btnNo;
 
-    private GoogleTtsManager googleTts;
-    private GoogleSttManager googleStt;
+    private GoogleTtsManager    googleTts;
+    private GoogleSttManager    googleStt;
+    private HybridSpeechManager hybridSpeech;
+    private SttCascadeSession   cascadeSession;
     private SpeechRecognizer speechRecognizer;
     private Intent speechIntent;
+    private int voiceSessionId = 0;
 
     private boolean isTtsSpeaking      = false;
     private boolean testStarted        = false;
@@ -84,14 +86,11 @@ public class TextSizeTestActivity extends AppCompatActivity {
 
     private final int[] readablePerSize = new int[5];
 
-    private static final int REQUEST_RECORD_AUDIO = 1001;
     private static final int MAX_RETRY            = 3;
 
     private static final long LISTEN_START_DELAY = 600L;
     private static final long NEXT_ITEM_DELAY    = 550L;
     private static final long ASK_DELAY          = 900L;
-
-    private static final long GOOGLE_STT_RECORD_WINDOW_MS = 5000L;
 
     private static final long RECOGNIZER_REBUILD_DELAY = 400L;
 
@@ -120,8 +119,16 @@ public class TextSizeTestActivity extends AppCompatActivity {
         activeWordTiers    = isRetakeAssessment ? retakeWordTiers : wordTiers;
         assignedWords      = pickWordsFromTiers(activeWordTiers);
 
-        googleTts = new GoogleTtsManager(this);
-        googleStt = new GoogleSttManager(this);
+        // respectVoicePreferences=false + built-in-recognizer-first with a Cloud
+        // STT -> Vosk cascade fallback: same accuracy stack as Register/Feedback,
+        // now including an offline (Vosk) tier this screen never had before.
+        googleTts    = new GoogleTtsManager(this, false);
+        googleStt    = new GoogleSttManager(this, false);
+        hybridSpeech = new HybridSpeechManager(this, false);
+        hybridSpeech.initVosk(
+                () -> Log.d("Assessment_STT", "Vosk model ready — offline fallback available."),
+                () -> Log.e("Assessment_STT", "Vosk model failed to load — Cloud STT/raw recognizer only."));
+        cascadeSession = new SttCascadeSession(googleStt, hybridSpeech, handler, true);
         buildSpeechIntent();
 
         showCurrentItem(false);
@@ -273,51 +280,49 @@ public class TextSizeTestActivity extends AppCompatActivity {
         speakReadPrompt("Great. Please read the word out loud now.");
     }
 
-    private void startReadAloudListening() {
+    /** Cloud STT -> Vosk fallback for the read-aloud phase, reached when the
+     *  built-in recognizer errors or comes back empty, within the overall
+     *  read-aloud time budget. */
+    private void cascadeReadAloud(int attemptId) {
+        if (attemptId != readAloudAttemptId) return;
         if (!isReadingWord || testFinished || answerHandled) return;
 
         long now = android.os.SystemClock.elapsedRealtime();
         if (now >= readAloudDeadlineElapsed) { finishReadAloud(false); return; }
-
-        if (!hasAudioPermission()) { finishReadAloud(true); return; }
-
-        final int myAttempt = ++readAloudAttemptId;
-
-        if (!NetworkUtils.hasInternet(this)) {
-
-            Log.e("STT", "No internet detected Ã¢Â€Â” skipping Cloud STT, using on-device recognizer.");
-            startAndroidReadAloudListening(myAttempt);
-            return;
-        }
+        if (cascadeSession == null) { scheduleReadAloudRetryOrFinish(); return; }
 
         isRecognizerListening = true;
-        setStatus("Listening for your readingÃ¢Â€Â¦");
-        googleStt.startRecording();
+        final int mySession = ++voiceSessionId;
+        setStatus("Listening for your reading…");
 
-        long remaining    = readAloudDeadlineElapsed - now;
-        long recordWindow = Math.min(remaining, GOOGLE_STT_RECORD_WINDOW_MS);
+        cascadeSession.cascade(this, "command", "reading the word", new SttCascadeSession.Listener() {
+            @Override public void onListeningStarted() {
+                if (mySession != voiceSessionId) return;
+                setStatus("Listening for your reading…");
+            }
 
-        handler.postDelayed(() -> {
-            if (myAttempt != readAloudAttemptId) return;
-            if (!isReadingWord || testFinished || answerHandled) return;
+            @Override public void onPartialResult(String partial) {
+                if (mySession != voiceSessionId || attemptId != readAloudAttemptId) return;
+                if (matchesTargetWord(partial)) { finishReadAloud(true); return; }
+                setStatus("Hearing: " + partial);
+            }
 
-            setStatus("Processing your readingÃ¢Â€Â¦");
-            googleStt.stopAndRecognize("command", new GoogleSttManager.SttCallback() {
-                @Override public void onResult(String transcript) {
-                    if (myAttempt != readAloudAttemptId) return;
-                    isRecognizerListening = false;
-                    ArrayList<String> matches = new ArrayList<>();
-                    matches.add(transcript);
-                    handleReadAloudResult(matches);
-                }
+            @Override public void onTranscript(String transcript) {
+                if (mySession != voiceSessionId) return;
+                isRecognizerListening = false;
+                if (attemptId != readAloudAttemptId) return;
+                ArrayList<String> matches = new ArrayList<>();
+                matches.add(transcript);
+                handleReadAloudResult(matches);
+            }
 
-                @Override public void onError(String message) {
-                    if (myAttempt != readAloudAttemptId) return;
-                    Log.e("STT", "Cloud STT failed (" + message + "), falling back to on-device recognizer.");
-                    startAndroidReadAloudListening(myAttempt);
-                }
-            });
-        }, recordWindow);
+            @Override public void onExhausted() {
+                if (mySession != voiceSessionId) return;
+                isRecognizerListening = false;
+                if (attemptId != readAloudAttemptId) return;
+                scheduleReadAloudRetryOrFinish();
+            }
+        });
     }
 
     private void startAndroidReadAloudListening(int attemptId) {
@@ -367,7 +372,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
 
     private void handleReadAloudError(int error) {
         if (!isReadingWord || testFinished || answerHandled) return;
-        scheduleReadAloudRetryOrFinish();
+        cascadeReadAloud(readAloudAttemptId);
     }
 
     private void scheduleReadAloudRetryOrFinish() {
@@ -375,7 +380,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
         if (android.os.SystemClock.elapsedRealtime() >= readAloudDeadlineElapsed) {
             finishReadAloud(false);
         } else {
-            handler.postDelayed(this::startReadAloudListening, 300);
+            handler.postDelayed(() -> startAndroidReadAloudListening(++readAloudAttemptId), 300);
         }
     }
 
@@ -477,44 +482,47 @@ public class TextSizeTestActivity extends AppCompatActivity {
         speakGeneral("Assessment stopped. You may press start again if you want to retake.");
     }
 
-    private void startVoiceRecognition() {
-        if (waitingForAnswer || testFinished || answerHandled) return;
+    /** Cloud STT -> Vosk fallback for the yes/no question, reached when the
+     *  built-in recognizer errors or comes back empty. */
+    private void cascadeYesNo() {
+        if (testFinished || answerHandled) return;
         if (isTtsSpeaking) return;
-        if (!hasAudioPermission()) {
-            setStatus("Microphone permission not granted. Tap Yes or No.");
-            return;
-        }
-
-        if (!NetworkUtils.hasInternet(this)) {
-            Log.e("STT", "No internet detected Ã¢Â€Â” skipping Cloud STT, using on-device recognizer.");
-            startAndroidVoiceRecognition();
-            return;
-        }
+        if (cascadeSession == null) { retryOrWaitForButton("I did not hear your answer."); return; }
 
         waitingForAnswer      = true;
         isRecognizerListening = true;
-        setStatus("ListeningÃ¢Â€Â¦ You may also tap Yes or No.");
-        googleStt.startRecording();
+        final int mySession = ++voiceSessionId;
+        setStatus("Listening… You may also tap Yes or No.");
 
-        handler.postDelayed(() -> {
-            if (testFinished || answerHandled || !waitingForAnswer) return;
-            setStatus("ProcessingÃ¢Â€Â¦ You may also tap Yes or No.");
-            googleStt.stopAndRecognize("command", new GoogleSttManager.SttCallback() {
-                @Override public void onResult(String transcript) {
-                    isRecognizerListening = false;
-                    waitingForAnswer      = false;
-                    if (testFinished || answerHandled) return;
-                    ArrayList<String> matches = new ArrayList<>();
-                    matches.add(transcript);
-                    handleVoiceAnswer(matches);
-                }
+        cascadeSession.cascade(this, "command", "yes or no answer", new SttCascadeSession.Listener() {
+            @Override public void onListeningStarted() {
+                if (mySession != voiceSessionId) return;
+                setStatus("Listening… You may also tap Yes or No.");
+            }
 
-                @Override public void onError(String message) {
-                    Log.e("STT", "Cloud STT failed (" + message + "), falling back to on-device recognizer.");
-                    startAndroidVoiceRecognition();
-                }
-            });
-        }, GOOGLE_STT_RECORD_WINDOW_MS);
+            @Override public void onPartialResult(String partial) {
+                if (mySession != voiceSessionId) return;
+                setStatus("Hearing: " + partial);
+            }
+
+            @Override public void onTranscript(String transcript) {
+                if (mySession != voiceSessionId) return;
+                isRecognizerListening = false;
+                waitingForAnswer      = false;
+                if (testFinished || answerHandled) return;
+                ArrayList<String> matches = new ArrayList<>();
+                matches.add(transcript);
+                handleVoiceAnswer(matches);
+            }
+
+            @Override public void onExhausted() {
+                if (mySession != voiceSessionId) return;
+                isRecognizerListening = false;
+                waitingForAnswer      = false;
+                if (testFinished || answerHandled) return;
+                retryOrWaitForButton("I did not hear your answer.");
+            }
+        });
     }
 
     private void startAndroidVoiceRecognition() {
@@ -558,6 +566,8 @@ public class TextSizeTestActivity extends AppCompatActivity {
     private void stopListeningSafely() {
         waitingForAnswer      = false;
         isRecognizerListening = false;
+        voiceSessionId++;
+        if (cascadeSession != null) cascadeSession.cancel();
         if (googleStt != null) googleStt.cancel();
         try { if (speechRecognizer != null) speechRecognizer.stopListening(); } catch (Exception ignored) {}
         try { if (speechRecognizer != null) speechRecognizer.cancel(); }        catch (Exception ignored) {}
@@ -617,11 +627,11 @@ public class TextSizeTestActivity extends AppCompatActivity {
                 case SpeechRecognizer.ERROR_NO_MATCH:
                 case SpeechRecognizer.ERROR_SPEECH_TIMEOUT: {
 
-                    retryOrWaitForButton(getSpeechErrorMessage(error));
+                    cascadeYesNo();
                     return;
                 }
                 default: {
-                    retryOrWaitForButton(getSpeechErrorMessage(error));
+                    cascadeYesNo();
                 }
             }
         }
@@ -672,7 +682,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
         googleTts.speak(text, () -> {
             isTtsSpeaking = false;
             if (testStarted && !testFinished && !answerHandled) {
-                handler.postDelayed(TextSizeTestActivity.this::startVoiceRecognition, 600);
+                handler.postDelayed(TextSizeTestActivity.this::startAndroidVoiceRecognition, 600);
             }
         });
     }
@@ -689,7 +699,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
         googleTts.speak(text, () -> {
             isTtsSpeaking = false;
             if (testStarted && !testFinished && isReadingWord) {
-                handler.postDelayed(TextSizeTestActivity.this::startReadAloudListening, 400);
+                handler.postDelayed(() -> startAndroidReadAloudListening(++readAloudAttemptId), 400);
             }
         });
     }
@@ -863,34 +873,39 @@ public class TextSizeTestActivity extends AppCompatActivity {
         return MicPermissionHelper.hasAudioPermission(this);
     }
 
+    private final ActivityResultLauncher<String> micPermissionLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
+                if (!granted) {
+                    Toast.makeText(this,
+                            "Microphone denied. You can still use the Yes/No buttons.",
+                            Toast.LENGTH_SHORT).show();
+                }
+                startAssessment();
+            });
+
     private void requestAudioPermission() {
         if (MicPermissionHelper.isPermanentlyDenied(this)) {
-            setStatus("Microphone access blocked. Enable it in Settings for voice commands.");
+            explainPermanentDenialAndOpenSettings();
             return;
         }
         if (MicPermissionHelper.isScreenReaderActive(this)) {
             setStatus("Microphone permission needed for voice commands.");
+            startAssessment();
             return;
         }
+        setStatus("Requesting microphone access...");
         MicPermissionHelper.markRequested(this);
-        ActivityCompat.requestPermissions(this,
-                new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_RECORD_AUDIO);
+        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO);
     }
 
-    @Override
-    public void onRequestPermissionsResult(int code, @NonNull String[] perms,
-                                           @NonNull int[] results) {
-        super.onRequestPermissionsResult(code, perms, results);
-        if (code == REQUEST_RECORD_AUDIO) {
-            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) {
-                startAssessment();
-            } else {
-                Toast.makeText(this,
-                        "Microphone denied. You can still use the Yes/No buttons.",
-                        Toast.LENGTH_SHORT).show();
-                startAssessment();
-            }
-        }
+    private void explainPermanentDenialAndOpenSettings() {
+        setStatus("Microphone permission blocked.");
+        googleTts.speak("Microphone access was previously denied and can't be requested again here. " +
+                "Opening app settings so you can enable it under Permissions. " +
+                "You can still use the Yes or No buttons for this assessment.", () -> {
+            MicPermissionHelper.openAppSettings(this);
+            startAssessment();
+        });
     }
 
     private String getSpeechErrorMessage(int error) {
@@ -919,8 +934,9 @@ public class TextSizeTestActivity extends AppCompatActivity {
         stopListeningSafely();
         destroyRecognizer();
         handler.removeCallbacksAndMessages(null);
-        if (googleTts != null) googleTts.destroy();
-        if (googleStt != null) googleStt.destroy();
+        if (googleTts    != null) googleTts.destroy();
+        if (googleStt    != null) googleStt.destroy();
+        if (hybridSpeech != null) hybridSpeech.destroy();
         super.onDestroy();
     }
 }

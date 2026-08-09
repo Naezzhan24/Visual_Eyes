@@ -106,6 +106,11 @@ public class ProfileActivity extends AppCompatActivity {
     private String  currentStudentId      = "";
     private String  lastSpokenInstruction  = "";
 
+    private int voiceSessionId = 0;
+
+    private boolean micPermissionRequestInFlight = false;
+    private boolean lastKnownMicPermission       = false;
+
     private long lastTapTime = 0L;
     private int  tapCount    = 0;
     private static final long TRIPLE_TAP_WINDOW_MS = 600L;
@@ -126,9 +131,11 @@ public class ProfileActivity extends AppCompatActivity {
 
     private final ActivityResultLauncher<String> micPermissionLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
+                micPermissionRequestInFlight = false;
+                lastKnownMicPermission = granted;
                 if (granted) {
                     updateVoiceStatus("Microphone enabled.");
-                    if (isSttEnabled && !isTtsSpeaking) scheduleListening(LISTEN_DELAY_AFTER_TTS);
+                    if (isSttEnabled && !isTtsSpeaking) speak("Microphone permission granted.", true);
                 } else {
                     updateVoiceStatus("Microphone permission denied.");
                 }
@@ -137,15 +144,38 @@ public class ProfileActivity extends AppCompatActivity {
     private void checkMicPermission() {
         if (MicPermissionHelper.hasAudioPermission(this)) return;
         if (MicPermissionHelper.isPermanentlyDenied(this)) {
-            updateVoiceStatus("Microphone access blocked. Enable it in Settings for voice commands.");
+            explainPermanentDenialAndOpenSettings();
             return;
         }
         if (MicPermissionHelper.isScreenReaderActive(this)) {
             updateVoiceStatus("Microphone permission needed for voice commands.");
             return;
         }
-        MicPermissionHelper.markRequested(this);
-        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO);
+        requestMicPermissionWithRationale();
+    }
+
+    private void requestMicPermissionWithRationale() {
+        updateVoiceStatus("Requesting microphone access...");
+        isTtsSpeaking = true;
+        stopListeningSafely();
+        googleTts.speak("I need access to your microphone for voice commands. " +
+                "A system permission dialog will appear next — please allow it.", () -> {
+            isTtsSpeaking = false;
+            MicPermissionHelper.markRequested(this);
+            micPermissionRequestInFlight = true;
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO);
+        });
+    }
+
+    private void explainPermanentDenialAndOpenSettings() {
+        updateVoiceStatus("Microphone permission blocked.");
+        isTtsSpeaking = true;
+        stopListeningSafely();
+        googleTts.speak("Microphone access was previously denied and can't be requested again here. " +
+                "Opening app settings so you can enable it under Permissions.", () -> {
+            isTtsSpeaking = false;
+            MicPermissionHelper.openAppSettings(this);
+        });
     }
 
     private final ActivityResultLauncher<Intent> galleryLauncher =
@@ -187,6 +217,7 @@ public class ProfileActivity extends AppCompatActivity {
 
         googleTts = new GoogleTtsManager(this);
         googleStt = new GoogleSttManager(this);
+        lastKnownMicPermission = MicPermissionHelper.hasAudioPermission(this);
         hybridSpeech = new HybridSpeechManager(this);
         hybridSpeech.initVosk(
                 () -> Log.d("Profile_STT", "Vosk model ready — now the primary listen engine."),
@@ -550,15 +581,17 @@ public class ProfileActivity extends AppCompatActivity {
         if (!isSttEnabled || isTtsSpeaking || isListening) return;
         commandHandled = false;
         isListening    = true;
+        final int mySession = voiceSessionId;
 
         cascadeSession.cascade(this, "command", null, new SttCascadeSession.Listener() {
             @Override public void onListeningStarted() {
+                if (mySession != voiceSessionId) return;
                 updateVoiceStatus("Listening...");
                 updateRecognizedText("Waiting for speech...");
             }
 
             @Override public void onPartialResult(String partial) {
-                if (commandHandled) return;
+                if (mySession != voiceSessionId || commandHandled) return;
                 String normalized = normalize(partial);
                 updateRecognizedText("Hearing: " + partial);
                 if (isQuickCommand(normalized)) {
@@ -569,12 +602,14 @@ public class ProfileActivity extends AppCompatActivity {
             }
 
             @Override public void onTranscript(String transcript) {
+                if (mySession != voiceSessionId) return;
                 isListening = false;
                 if (commandHandled) return;
                 processCommand(transcript);
             }
 
             @Override public void onExhausted() {
+                if (mySession != voiceSessionId) return;
                 isListening    = false;
                 commandHandled = false;
                 updateVoiceStatus("No speech detected.");
@@ -605,6 +640,7 @@ public class ProfileActivity extends AppCompatActivity {
 
     private void stopListeningSafely() {
         isListening = false;
+        voiceSessionId++;
         if (cascadeSession != null) cascadeSession.cancel();
         try { if (speechRecognizer != null) speechRecognizer.stopListening(); } catch (Exception ignored) {}
         try { if (speechRecognizer != null) speechRecognizer.cancel(); }        catch (Exception ignored) {}
@@ -1116,6 +1152,13 @@ public class ProfileActivity extends AppCompatActivity {
         applyFontSize();
         loadProfileData();
         fetchStudentProfileFromServer();
+
+        boolean nowGranted = MicPermissionHelper.hasAudioPermission(this);
+        if (nowGranted && !lastKnownMicPermission && !micPermissionRequestInFlight) {
+            updateVoiceStatus("Microphone enabled.");
+        }
+        lastKnownMicPermission = nowGranted;
+
         if (isSttEnabled && !isTtsSpeaking) scheduleListening(LISTEN_DELAY_NORMAL);
     }
 

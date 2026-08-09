@@ -58,7 +58,8 @@ public class FeedbackActivity extends AppCompatActivity {
     private CardView cardRatingView, cardMaterialView, cardInstructorView;
 
     private String materialId = "";
-    private String studentId = "";
+    private String studentEmail = "";
+    private String studentPassword = "";
     private EditText activeVoiceField;
 
     private GoogleTtsManager    googleTts;
@@ -140,7 +141,8 @@ public class FeedbackActivity extends AppCompatActivity {
         materialId = getIntent().getStringExtra("material_id");
 
         AuthManager authManager = new AuthManager(this);
-        studentId = authManager.getStudentId();
+        studentEmail    = authManager.getEmail();
+        studentPassword = authManager.getPassword();
 
         buildSpeechIntent();
 
@@ -743,7 +745,7 @@ public class FeedbackActivity extends AppCompatActivity {
     }
 
     // ----------------------------------------------------------------------
-    // Feedback submission (unchanged from before)
+    // Feedback submission
     // ----------------------------------------------------------------------
 
     private void submitFeedback() {
@@ -758,8 +760,16 @@ public class FeedbackActivity extends AppCompatActivity {
             Toast.makeText(this, "Material ID not found.", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (studentId == null || studentId.trim().isEmpty()) {
-            Toast.makeText(this, "Student ID not found.", Toast.LENGTH_SHORT).show();
+        if (studentEmail == null || studentEmail.trim().isEmpty()) {
+            Toast.makeText(this, "Student account not found. Please log in again.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        int materialIdInt;
+        try {
+            materialIdInt = Integer.parseInt(materialId.trim());
+        } catch (NumberFormatException e) {
+            Toast.makeText(this, "Material ID is invalid.", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -783,10 +793,11 @@ public class FeedbackActivity extends AppCompatActivity {
 
         JSONObject body = new JSONObject();
         try {
-            body.put("student_id",    studentId);
-            body.put("material_id",   materialId);
-            body.put("rating",        rating);
-            body.put("feedback_text", combinedFeedback);
+            body.put("p_email",         studentEmail);
+            body.put("p_password",      studentPassword);
+            body.put("p_material_id",   materialIdInt);
+            body.put("p_rating",        rating);
+            body.put("p_feedback_text", combinedFeedback);
         } catch (Exception e) {
             Toast.makeText(this, "Something went wrong.", Toast.LENGTH_SHORT).show();
             return;
@@ -796,10 +807,28 @@ public class FeedbackActivity extends AppCompatActivity {
         btnSubmit.setText("Sending...");
         final String bodyStr = body.toString();
 
+        // Calls the student_submit_feedback RPC instead of inserting into
+        // material_feedbacks directly. The direct insert let the client choose
+        // its own student_id, so anyone with the anon key could post feedback
+        // as another student, on any material. The RPC verifies the account
+        // server-side and derives student_id from it.
+        String url = ApiConfig.SUPABASE_URL + "/rest/v1/rpc/student_submit_feedback";
+
         StringRequest request = new StringRequest(
                 Request.Method.POST,
-                ApiConfig.MATERIAL_FEEDBACKS,
+                url,
                 response -> {
+                    // The RPC returns false (with HTTP 200) when the account
+                    // couldn't be verified or the student has no access to this
+                    // material — so a 200 alone doesn't mean the row was saved.
+                    if (response != null && response.trim().equalsIgnoreCase("false")) {
+                        btnSubmit.setEnabled(true);
+                        btnSubmit.setText("Submit Feedback");
+                        Toast.makeText(this,
+                                "Could not submit feedback. Please log in again, or open this material from your materials list first.",
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
 
                     btnSubmit.setText("Sent!");
                     Toast.makeText(this, "Feedback submitted successfully!", Toast.LENGTH_LONG).show();
@@ -836,7 +865,7 @@ public class FeedbackActivity extends AppCompatActivity {
                 headers.put("apikey",        ApiConfig.SUPABASE_KEY);
                 headers.put("Authorization", "Bearer " + ApiConfig.SUPABASE_KEY);
                 headers.put("Content-Type",  "application/json");
-                headers.put("Prefer",        "return=minimal");
+                headers.put("Accept",        "application/json");
                 return headers;
             }
         };

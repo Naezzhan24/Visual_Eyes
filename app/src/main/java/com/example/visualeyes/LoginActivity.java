@@ -311,6 +311,8 @@ public class LoginActivity extends AppCompatActivity {
                     ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
                     : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
             passwordInput.setSelection(passwordInput.getText().length());
+            togglePassword.setImageResource(isPasswordVisible
+                    ? R.drawable.ic_eye_open : R.drawable.ic_eye_closed);
             bounceClick(togglePassword);
         });
     }

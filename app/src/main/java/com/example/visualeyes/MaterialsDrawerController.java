@@ -13,6 +13,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.PopupMenu;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -30,6 +31,8 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -44,12 +47,16 @@ final class MaterialsDrawerController {
     private static final String PREFS_NAME            = "VisualEyesPrefs";
     private static final String KEY_LAST_OPENED_TITLE = "last_opened_title";
     private static final String KEY_LAST_OPENED_URL   = "last_opened_url";
+    private static final String KEY_SORT_MODE         = "materials_drawer_sort_mode";
+
+    private enum SortMode { NEWEST, OLDEST, UNREAD_FIRST, TITLE_AZ }
 
     private final Activity activity;
     private final DrawerLayout drawerLayout;
     private final LinearLayout container;
     private final ArrayList<LearningMaterial> materials = new ArrayList<>();
     private final Runnable beforeOpenMaterial;
+    private SortMode currentSort;
 
     MaterialsDrawerController(Activity activity, DrawerLayout drawerLayout, LinearLayout container,
                               ImageView menuIcon, ImageView btnClose, Runnable beforeOpenMaterial) {
@@ -57,7 +64,17 @@ final class MaterialsDrawerController {
         this.drawerLayout = drawerLayout;
         this.container = container;
         this.beforeOpenMaterial = beforeOpenMaterial;
+
+        SharedPreferences prefs = activity.getSharedPreferences(PREFS_NAME, Activity.MODE_PRIVATE);
+        SortMode[] modes = SortMode.values();
+        int savedOrdinal = prefs.getInt(KEY_SORT_MODE, 0);
+        this.currentSort = modes[savedOrdinal >= 0 && savedOrdinal < modes.length ? savedOrdinal : 0];
+
         if (btnClose != null) btnClose.setOnClickListener(v -> close());
+
+        ImageView btnSort = activity.findViewById(R.id.btnSortMaterials);
+        if (btnSort != null) btnSort.setOnClickListener(this::showSortMenu);
+
         if (drawerLayout != null && menuIcon != null) {
             drawerLayout.addDrawerListener(new DrawerLayout.SimpleDrawerListener() {
                 @Override public void onDrawerOpened(View drawerView) {
@@ -68,6 +85,27 @@ final class MaterialsDrawerController {
                 }
             });
         }
+    }
+
+    private void showSortMenu(View anchor) {
+        PopupMenu popup = new PopupMenu(activity, anchor);
+        popup.getMenuInflater().inflate(R.menu.menu_sort_materials, popup.getMenu());
+        popup.setOnMenuItemClickListener(item -> {
+            SortMode selected;
+            int id = item.getItemId();
+            if (id == R.id.sort_oldest)            selected = SortMode.OLDEST;
+            else if (id == R.id.sort_unread_first)  selected = SortMode.UNREAD_FIRST;
+            else if (id == R.id.sort_title_az)      selected = SortMode.TITLE_AZ;
+            else                                    selected = SortMode.NEWEST;
+
+            currentSort = selected;
+            activity.getSharedPreferences(PREFS_NAME, Activity.MODE_PRIVATE)
+                    .edit().putInt(KEY_SORT_MODE, selected.ordinal()).apply();
+            Toast.makeText(activity, "Sorted by: " + item.getTitle(), Toast.LENGTH_SHORT).show();
+            renderList();
+            return true;
+        });
+        popup.show();
     }
 
     void open() {
@@ -176,14 +214,68 @@ final class MaterialsDrawerController {
             container.addView(emptyLabel("No materials sent yet."));
             return;
         }
+
+        List<LearningMaterial> sorted = sortedMaterials();
+
+        // Date grouping only makes sense when the list is ordered by date —
+        // for unread-first / title order it would just scatter unrelated
+        // headers throughout the list, so show a flat list instead.
+        boolean showDateHeaders = currentSort == SortMode.NEWEST || currentSort == SortMode.OLDEST;
         String lastGroup = null;
-        for (LearningMaterial m : materials) {
-            String group = dateGroupLabel(m.getDateResolved());
-            if (!group.equals(lastGroup)) {
-                container.addView(dateHeader(group));
-                lastGroup = group;
+        for (LearningMaterial m : sorted) {
+            if (showDateHeaders) {
+                String group = dateGroupLabel(m.getDateResolved());
+                if (!group.equals(lastGroup)) {
+                    container.addView(dateHeader(group));
+                    lastGroup = group;
+                }
             }
             container.addView(materialRow(m));
+        }
+    }
+
+    private List<LearningMaterial> sortedMaterials() {
+        List<LearningMaterial> sorted = new ArrayList<>(materials);
+        switch (currentSort) {
+            case OLDEST:
+                Collections.sort(sorted, Comparator.comparingLong(
+                        m -> parseDateMillis(m.getDateResolved())));
+                break;
+            case UNREAD_FIRST:
+                Collections.sort(sorted, (a, b) -> {
+                    boolean aOpened = MaterialReadTracker.isOpened(activity, a.getId());
+                    boolean bOpened = MaterialReadTracker.isOpened(activity, b.getId());
+                    if (aOpened == bOpened) {
+                        return Long.compare(parseDateMillis(b.getDateResolved()), parseDateMillis(a.getDateResolved()));
+                    }
+                    return aOpened ? 1 : -1;
+                });
+                break;
+            case TITLE_AZ:
+                Collections.sort(sorted, (a, b) -> {
+                    String ta = a.getTitle() != null ? a.getTitle() : "";
+                    String tb = b.getTitle() != null ? b.getTitle() : "";
+                    return ta.compareToIgnoreCase(tb);
+                });
+                break;
+            case NEWEST:
+            default:
+                Collections.sort(sorted, (a, b) -> Long.compare(
+                        parseDateMillis(b.getDateResolved()), parseDateMillis(a.getDateResolved())));
+                break;
+        }
+        return sorted;
+    }
+
+    private long parseDateMillis(String rawDate) {
+        if (rawDate == null || rawDate.trim().isEmpty()) return 0L;
+        String datePart = rawDate.length() >= 10 ? rawDate.substring(0, 10) : rawDate;
+        try {
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+            sdf.setLenient(false);
+            return sdf.parse(datePart).getTime();
+        } catch (Exception e) {
+            return 0L;
         }
     }
 

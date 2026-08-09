@@ -451,6 +451,19 @@
                 android:textStyle="bold" />
 
             <ImageView
+                android:id="@+id/btnSortMaterials"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="4dp"
+                android:padding="9dp"
+                android:background="@drawable/bg_icon_button_ripple"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="Sort materials"
+                android:src="@drawable/ic_sort"
+                app:tint="#FFFFFF" />
+
+            <ImageView
                 android:id="@+id/btnCloseDrawer"
                 android:layout_width="40dp"
                 android:layout_height="40dp"

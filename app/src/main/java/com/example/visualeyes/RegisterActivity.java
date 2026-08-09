@@ -88,6 +88,10 @@ public class RegisterActivity extends AppCompatActivity {
     private String  latestPartialText       = "";
     private int     retryCount              = 0;
 
+    private boolean isAwaitingLetterPosition  = false;
+    private boolean isAwaitingLetterValue     = false;
+    private int     correctingLetterPosition  = 0;
+
     private static final int MAX_RETRY      = 4;
 
     private static final long VOICE_INPUT_TIMEOUT_MS = 11000L;
@@ -265,6 +269,8 @@ public class RegisterActivity extends AppCompatActivity {
                         ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
                         : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
                 password.setSelection(password.getText().length());
+                togglePassword1.setImageResource(isPassword1Visible
+                        ? R.drawable.ic_eye_open : R.drawable.ic_eye_closed);
                 animateClick(togglePassword1);
             });
             UiAnim.attachPressFeedback(togglePassword1);
@@ -276,6 +282,8 @@ public class RegisterActivity extends AppCompatActivity {
                         ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
                         : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
                 confirmPassword.setSelection(confirmPassword.getText().length());
+                togglePassword2.setImageResource(isPassword2Visible
+                        ? R.drawable.ic_eye_open : R.drawable.ic_eye_closed);
                 animateClick(togglePassword2);
             });
             UiAnim.attachPressFeedback(togglePassword2);
@@ -376,6 +384,8 @@ public class RegisterActivity extends AppCompatActivity {
         retryCount        = 0;
         latestPartialText = "";
         pendingValue      = "";
+        isAwaitingLetterPosition = false;
+        isAwaitingLetterValue    = false;
         currentFieldIndex = findFirstEmptyFieldIndex();
 
         if (currentFieldIndex >= voiceFields.length) {
@@ -405,6 +415,8 @@ public class RegisterActivity extends AppCompatActivity {
         field.requestFocus();
         scrollToField(field);
         isConfirmingField = false;
+        isAwaitingLetterPosition = false;
+        isAwaitingLetterValue    = false;
         hasProcessedSpeech = false;
         latestPartialText  = "";
 
@@ -678,10 +690,22 @@ public class RegisterActivity extends AppCompatActivity {
 
         if (lower.contains("cancel") || lower.equals("stop")) {
             isVoiceMode = false;
+            isAwaitingLetterPosition = false;
+            isAwaitingLetterValue    = false;
             stopListeningSafely();
             lastSpokenInstruction = "Voice registration cancelled.";
             say(lastSpokenInstruction, null);
             updateVoiceStatus("Voice registration cancelled.");
+            return;
+        }
+
+        if (isAwaitingLetterPosition) {
+            handleLetterPositionResponse(lower);
+            return;
+        }
+
+        if (isAwaitingLetterValue) {
+            handleLetterValueResponse(lower);
             return;
         }
 
@@ -712,10 +736,15 @@ public class RegisterActivity extends AppCompatActivity {
 
                 isConfirmingField = false;
                 retryCount        = 0;
-                pendingValue      = "";
-                lastSpokenInstruction = "Okay, please say it again.";
-                say(lastSpokenInstruction,
-                        () -> handler.postDelayed(this::promptCurrentField, 400));
+
+                if (isNameField(currentFieldIndex)) {
+                    beginLetterCorrection();
+                } else {
+                    pendingValue = "";
+                    lastSpokenInstruction = "Okay, please say it again.";
+                    say(lastSpokenInstruction,
+                            () -> handler.postDelayed(this::promptCurrentField, 400));
+                }
 
             } else {
 
@@ -921,6 +950,186 @@ public class RegisterActivity extends AppCompatActivity {
             sb.append(c == ' ' ? "space" : String.valueOf(c));
         }
         return sb.toString();
+    }
+
+    // ----------------------------------------------------------------------
+    // Letter-by-letter correction for first/middle/last name fields. Reached
+    // when the user says "no" to a name spelling confirmation instead of
+    // making them re-say the entire name — they pick a letter position, then
+    // say the correct letter (optionally "double"/"triple" for a repeated
+    // letter, e.g. a doubled "L" the recognizer heard as single).
+    // ----------------------------------------------------------------------
+
+    private boolean isNameField(int index) {
+        return index == 0 || index == 1 || index == 2;
+    }
+
+    private boolean isStartOverCommand(String lower) {
+        return lower.contains("start over") || lower.contains("whole name")
+                || lower.contains("say it again") || lower.contains("from the beginning");
+    }
+
+    private void beginLetterCorrection() {
+        isAwaitingLetterPosition = true;
+        isAwaitingLetterValue    = false;
+        retryCount               = 0;
+        latestPartialText        = "";
+
+        updateVoiceStatus("Which letter is wrong?");
+        lastSpokenInstruction = "Which letter is wrong? Please say its position, like letter 1, letter 2, or letter 3. " +
+                "Or say start over to say the whole name again.";
+        say(lastSpokenInstruction, this::startVoiceInput);
+    }
+
+    private void restartWholeName() {
+        isAwaitingLetterPosition = false;
+        isAwaitingLetterValue    = false;
+        pendingValue             = "";
+        retryCount               = 0;
+        lastSpokenInstruction = "Okay, please say it again.";
+        say(lastSpokenInstruction, () -> handler.postDelayed(this::promptCurrentField, 400));
+    }
+
+    private void handleLetterPositionResponse(String lower) {
+        if (isStartOverCommand(lower)) {
+            restartWholeName();
+            return;
+        }
+
+        int position = parseLetterPosition(lower, pendingValue.length());
+        if (position < 1) {
+            retryCount++;
+            if (retryCount <= MAX_RETRY) {
+                lastSpokenInstruction = "I did not catch a valid letter position. " +
+                        "Please say a number from 1 to " + pendingValue.length() + ", like letter 1.";
+                say(lastSpokenInstruction, this::startVoiceInput);
+            } else {
+                restartWholeName();
+            }
+            return;
+        }
+
+        correctingLetterPosition = position;
+        retryCount               = 0;
+        isAwaitingLetterPosition = false;
+        isAwaitingLetterValue    = true;
+
+        char current = Character.toUpperCase(pendingValue.charAt(position - 1));
+        updateVoiceStatus("Letter " + position + " is " + current + ". What should it be?");
+        lastSpokenInstruction = "Letter " + position + " is " + current + ". " +
+                "Please say the correct letter. If it should be a doubled letter, say double, then the letter, like double L.";
+        say(lastSpokenInstruction, this::startVoiceInput);
+    }
+
+    private int parseLetterPosition(String lower, int maxLen) {
+        String normalized = lower
+                .replace("first", "1").replace("second", "2").replace("third", "3")
+                .replace("fourth", "4").replace("fifth", "5").replace("sixth", "6")
+                .replace("seventh", "7").replace("eighth", "8").replace("ninth", "9")
+                .replace("tenth", "10");
+        normalized = convertNumberWords(normalized);
+        String digits = normalized.replaceAll("[^0-9]", "");
+        if (digits.isEmpty()) return -1;
+        try {
+            int value = Integer.parseInt(digits);
+            return (value >= 1 && value <= maxLen) ? value : -1;
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private void handleLetterValueResponse(String lower) {
+        if (isStartOverCommand(lower)) {
+            restartWholeName();
+            return;
+        }
+
+        String replacement = parseSpokenLetters(lower);
+        if (replacement.isEmpty()) {
+            retryCount++;
+            if (retryCount <= MAX_RETRY) {
+                lastSpokenInstruction = "I did not catch a letter. Please say a single letter, like C. " +
+                        "For a doubled letter, say double, then the letter, like double L.";
+                say(lastSpokenInstruction, this::startVoiceInput);
+            } else {
+                restartWholeName();
+            }
+            return;
+        }
+
+        int pos = correctingLetterPosition;
+        String updated = pendingValue.substring(0, pos - 1) + replacement + pendingValue.substring(pos);
+
+        isAwaitingLetterValue = false;
+        retryCount            = 0;
+        updateVoiceStatus("Updated to: " + updated);
+        confirmField(updated);
+    }
+
+    /** Parses a spoken replacement letter, honoring a "double"/"triple" prefix
+     *  for repeated letters (e.g. "double L" -> "LL"). Checked before the
+     *  general prefix so the literal letter name "double u" (W) isn't
+     *  mistaken for a duplicated "U". */
+    private String parseSpokenLetters(String lower) {
+        String text = lower.trim();
+
+        if (text.equals("double u") || text.equals("double you")) {
+            return "W";
+        }
+
+        int repeat = 1;
+        if (text.startsWith("double ")) {
+            repeat = 2;
+            text = text.substring(7).trim();
+        } else if (text.startsWith("triple ")) {
+            repeat = 3;
+            text = text.substring(7).trim();
+        }
+
+        char letter = parsePhoneticLetter(text);
+        if (letter == 0) return "";
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < repeat; i++) sb.append(letter);
+        return sb.toString();
+    }
+
+    private char parsePhoneticLetter(String text) {
+        String cleaned = text.replaceAll("[^a-z ]", "").trim();
+        if (cleaned.isEmpty()) return 0;
+
+        switch (cleaned) {
+            case "a": case "ay": return 'A';
+            case "b": case "bee": case "be": return 'B';
+            case "c": case "see": case "sea": return 'C';
+            case "d": case "dee": case "de": return 'D';
+            case "e": case "ee": return 'E';
+            case "f": case "eff": return 'F';
+            case "g": case "gee": case "jee": return 'G';
+            case "h": case "aitch": case "eitch": return 'H';
+            case "i": case "eye": return 'I';
+            case "j": case "jay": return 'J';
+            case "k": case "kay": return 'K';
+            case "l": case "el": case "ell": return 'L';
+            case "m": case "em": return 'M';
+            case "n": case "en": return 'N';
+            case "o": case "oh": return 'O';
+            case "p": case "pee": case "pe": return 'P';
+            case "q": case "cue": case "queue": return 'Q';
+            case "r": case "ar": case "are": return 'R';
+            case "s": case "ess": return 'S';
+            case "t": case "tee": case "te": return 'T';
+            case "u": case "you": case "yu": return 'U';
+            case "v": case "vee": case "ve": return 'V';
+            case "w": return 'W';
+            case "x": case "ex": return 'X';
+            case "y": case "why": return 'Y';
+            case "z": case "zee": case "zed": return 'Z';
+            default: {
+                char c = Character.toUpperCase(cleaned.charAt(0));
+                return (c >= 'A' && c <= 'Z') ? c : 0;
+            }
+        }
     }
 
     private String processVoiceInput(String input) {
@@ -1134,14 +1343,23 @@ public class RegisterActivity extends AppCompatActivity {
                     String errorMessage = "Registration failed.";
                     if (error.networkResponse != null && error.networkResponse.data != null) {
                         String body = new String(error.networkResponse.data, StandardCharsets.UTF_8);
-                        if (body.contains("duplicate") || body.contains("students_email_key")) {
+                        // Check the specific constraint name first — a bare "duplicate"
+                        // match is true for ANY unique-constraint violation (email OR
+                        // school ID), so checking it before the specific school_id case
+                        // was mislabeling school-ID collisions as "email already
+                        // registered" even when the email itself was brand new.
+                        if (body.contains("students_email_key")) {
                             errorMessage = "This email is already registered.";
                             email.setError("Email already registered");
                             email.requestFocus(); scrollToField(email);
-                        } else if (body.contains("school_id")) {
+                        } else if (body.contains("students_school_id_key") || body.contains("school_id")) {
                             errorMessage = "School ID already registered or invalid.";
                             schoolid.setError("Check School ID");
                             schoolid.requestFocus(); scrollToField(schoolid);
+                        } else if (body.contains("duplicate")) {
+                            errorMessage = "This email or School ID is already registered.";
+                            email.setError("Check your details");
+                            email.requestFocus(); scrollToField(email);
                         } else {
                             errorMessage = "Registration failed. Please try again.";
                         }

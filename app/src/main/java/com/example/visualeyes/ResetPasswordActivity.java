@@ -27,8 +27,7 @@ import com.android.volley.toolbox.Volley;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.nio.charset.StandardCharsets;
 
 public class ResetPasswordActivity extends AppCompatActivity {
 
@@ -40,10 +39,11 @@ public class ResetPasswordActivity extends AppCompatActivity {
     private GoogleTtsManager googleTts;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
-    private String       phoneNumber  = "";
+    private String       email        = "";
+    private String       code         = "";
     private RequestQueue requestQueue;
-    private static final String RESET_PASSWORD_URL =
-            "http://192.168.1.100/VisualED/reset_password.php";
+    private static final String VERIFY_RESET_CODE_URL =
+            "http://10.118.24.232/visualed/verify_reset_code.php";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,8 +60,9 @@ public class ResetPasswordActivity extends AppCompatActivity {
         resetPasswordButton  = findViewById(R.id.btnResetPassword);
         cbShowPassword       = findViewById(R.id.cbShowPassword);
 
-        if (getIntent() != null && getIntent().hasExtra("phone_number")) {
-            phoneNumber = getIntent().getStringExtra("phone_number");
+        if (getIntent() != null) {
+            email = getIntent().getStringExtra("email");
+            code  = getIntent().getStringExtra("code");
         }
 
         setupShowPassword();
@@ -112,9 +113,9 @@ public class ResetPasswordActivity extends AppCompatActivity {
         String newPass     = newPasswordInput.getText().toString().trim();
         String confirmPass = confirmPasswordInput.getText().toString().trim();
 
-        if (phoneNumber == null || phoneNumber.trim().isEmpty()) {
-            Toast.makeText(this, "Phone number not found.", Toast.LENGTH_SHORT).show();
-            googleTts.speak("Phone number not found. Please go back and try again.", null);
+        if (email == null || email.trim().isEmpty() || code == null || code.trim().isEmpty()) {
+            Toast.makeText(this, "Verification details not found.", Toast.LENGTH_SHORT).show();
+            googleTts.speak("Verification details not found. Please go back and try again.", null);
             return;
         }
         if (newPass.isEmpty()) {
@@ -147,13 +148,25 @@ public class ResetPasswordActivity extends AppCompatActivity {
         }
 
         googleTts.speak("Resetting your password. Please wait.", null);
-        resetPasswordInDatabase(phoneNumber, newPass);
+        resetPasswordInDatabase(newPass);
     }
 
-    private void resetPasswordInDatabase(String phone, String newPassword) {
+    private void resetPasswordInDatabase(String newPassword) {
         resetPasswordButton.setEnabled(false);
 
-        StringRequest req = new StringRequest(Request.Method.POST, RESET_PASSWORD_URL,
+        JSONObject body = new JSONObject();
+        try {
+            body.put("email", email);
+            body.put("code", code);
+            body.put("new_password", newPassword);
+        } catch (JSONException e) {
+            resetPasswordButton.setEnabled(true);
+            googleTts.speak("Something went wrong. Please try again.", null);
+            return;
+        }
+        final String bodyStr = body.toString();
+
+        StringRequest req = new StringRequest(Request.Method.POST, VERIFY_RESET_CODE_URL,
                 response -> {
                     resetPasswordButton.setEnabled(true);
                     try {
@@ -186,12 +199,8 @@ public class ResetPasswordActivity extends AppCompatActivity {
                     googleTts.speak(msg, null);
                 }
         ) {
-            @Override protected Map<String, String> getParams() {
-                Map<String, String> params = new HashMap<>();
-                params.put("phone_number", phone);
-                params.put("new_password", newPassword);
-                return params;
-            }
+            @Override public byte[] getBody() { return bodyStr.getBytes(StandardCharsets.UTF_8); }
+            @Override public String getBodyContentType() { return "application/json; charset=utf-8"; }
         };
         requestQueue.add(req);
     }

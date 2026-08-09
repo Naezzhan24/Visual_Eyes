@@ -87,6 +87,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private LinearLayout contentContainer;
     private ImageView btnBack;
     private Button btnDecreaseText, btnIncreaseText;
+    private Button btnPauseReading, btnContinueReading;
     private SeekBar seekTextSize;
 
     private final List<TextView> bodyTextViews    = new ArrayList<>();
@@ -173,6 +174,8 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         btnBack         = findViewById(R.id.btnBack);
         btnDecreaseText = findViewById(R.id.btnDecreaseText);
         btnIncreaseText = findViewById(R.id.btnIncreaseText);
+        btnPauseReading    = findViewById(R.id.btnPauseReading);
+        btnContinueReading = findViewById(R.id.btnContinueReading);
         seekTextSize    = findViewById(R.id.seekTextSize);
 
         ImageView btnFeedback = findViewById(R.id.btnFeedback);
@@ -188,6 +191,8 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         if (btnFeedback != null)     UiAnim.attachPressFeedback(btnFeedback);
         if (btnDecreaseText != null) UiAnim.attachPressFeedback(btnDecreaseText);
         if (btnIncreaseText != null) UiAnim.attachPressFeedback(btnIncreaseText);
+        if (btnPauseReading    != null) UiAnim.attachPressFeedback(btnPauseReading);
+        if (btnContinueReading != null) UiAnim.attachPressFeedback(btnContinueReading);
 
         int intentTextSize = getIntent().getIntExtra("recommended_text_size", -1);
         hasIntentTextSize = intentTextSize > 0;
@@ -1039,7 +1044,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
             return;
         }
         if (MicPermissionHelper.isPermanentlyDenied(this)) {
-            setVoiceStatus("Voice: microphone access blocked in Settings");
+            explainPermanentDenialAndOpenSettings();
             return;
         }
         if (MicPermissionHelper.isScreenReaderActive(this)) {
@@ -1049,6 +1054,13 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         MicPermissionHelper.markRequested(this);
         ActivityCompat.requestPermissions(this,
                 new String[]{Manifest.permission.RECORD_AUDIO}, REQ_RECORD_AUDIO);
+    }
+
+    private void explainPermanentDenialAndOpenSettings() {
+        setVoiceStatus("Voice: microphone access blocked in Settings");
+        speakNow("Microphone access was previously denied and can't be requested again here. " +
+                "Opening app settings so you can enable it under Permissions.", "MIC_SETTINGS_MSG");
+        handler.postDelayed(() -> MicPermissionHelper.openAppSettings(this), 4500);
     }
 
     private void startListeningSafe() {
@@ -1178,30 +1190,12 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         if (isRepeatChunkCommand(cmd) && lastReadChunkIndex >= 0) { repeatCurrentChunk(); return; }
 
         if (isYesCommand(cmd)) {
-            if (!materialLoaded) {
-                speakNow("Material is still loading. Please wait.", "STOP_MSG");
-                return;
-            }
-
-            if (currentChunkIndex > 0 && currentChunkIndex < chunks.size()) {
-                isReading = true;
-                speakNow("Resuming.", "RESUME");
-
-                handler.postDelayed(() -> {
-                    if (isReading) readNextChunk();
-                }, 1200);
-            } else {
-                startReading();
-            }
+            resumeReading();
             return;
         }
 
         if (isNoOrStopCommand(cmd)) {
-            isReading             = false;
-            awaitingChunkDecision = false;
-            handler.removeCallbacks(nextChunkRunnable);
-            if (tts != null) tts.stop();
-            speakNow("Reading stopped. Say yes to resume.", "STOP_MSG");
+            pauseReading();
             return;
         }
 
@@ -1275,6 +1269,36 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     }
     private boolean isRepeatChunkCommand(String c) {
         return c.contains("repeat") || c.contains("again") || c.contains("ulit");
+    }
+
+    /** Shared by the "yes"/"start"/"go" voice commands and the Continue button
+     *  — resumes from the current chunk if reading had been paused mid-way,
+     *  otherwise starts from the beginning. */
+    private void resumeReading() {
+        if (!materialLoaded) {
+            speakNow("Material is still loading. Please wait.", "STOP_MSG");
+            return;
+        }
+
+        if (currentChunkIndex > 0 && currentChunkIndex < chunks.size()) {
+            isReading = true;
+            speakNow("Resuming.", "RESUME");
+
+            handler.postDelayed(() -> {
+                if (isReading) readNextChunk();
+            }, 1200);
+        } else {
+            startReading();
+        }
+    }
+
+    /** Shared by the "no"/"stop"/"pause" voice commands and the Pause button. */
+    private void pauseReading() {
+        isReading             = false;
+        awaitingChunkDecision = false;
+        handler.removeCallbacks(nextChunkRunnable);
+        if (tts != null) tts.stop();
+        speakNow("Reading stopped. Say yes to resume.", "STOP_MSG");
     }
 
     private void startReading() {
@@ -1549,6 +1573,8 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private void setupTextSizeControls() {
         if (btnIncreaseText != null) btnIncreaseText.setOnClickListener(v -> increaseTextSize());
         if (btnDecreaseText != null) btnDecreaseText.setOnClickListener(v -> decreaseTextSize());
+        if (btnPauseReading    != null) btnPauseReading.setOnClickListener(v -> pauseReading());
+        if (btnContinueReading != null) btnContinueReading.setOnClickListener(v -> resumeReading());
 
         if (seekTextSize != null) {
             seekTextSize.setMax(MAX_TEXT_SIZE - MIN_TEXT_SIZE);

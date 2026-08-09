@@ -3,7 +3,6 @@ package com.example.visualeyes;
 import android.Manifest;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -24,10 +23,10 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.annotation.NonNull;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.cardview.widget.CardView;
-import androidx.core.app.ActivityCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
 
 import com.android.volley.Request;
@@ -75,6 +74,11 @@ public class MaterialsActivity extends AppCompatActivity {
     private LearningMaterial pendingMaterial = null;
     private String  lastMessage        = "Materials screen. Your accessible learning materials are shown here.";
 
+    private int voiceSessionId = 0;
+
+    private boolean micPermissionRequestInFlight = false;
+    private boolean lastKnownMicPermission       = false;
+
     private long lastTapTime = 0L;
     private int  tapCount    = 0;
     private static final long TRIPLE_TAP_WINDOW_MS = 600L;
@@ -97,7 +101,21 @@ public class MaterialsActivity extends AppCompatActivity {
     private static final String PREFS_NAME            = "VisualEyesPrefs";
     private static final String KEY_LAST_OPENED_TITLE = "last_opened_title";
     private static final String KEY_LAST_OPENED_URL   = "last_opened_url";
-    private static final int    RECORD_AUDIO_CODE     = 101;
+
+    private final ActivityResultLauncher<String> micPermissionLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
+                micPermissionRequestInFlight = false;
+                lastKnownMicPermission = granted;
+                if (granted) {
+                    initSpeechRecognizer();
+                    updateVoiceStatus("Microphone enabled.");
+                    handler.postDelayed(() ->
+                            speak("Materials screen. Say help for available commands.", true), 400);
+                } else {
+                    updateVoiceStatus("Microphone permission denied.");
+                    Toast.makeText(this, "Microphone permission is required.", Toast.LENGTH_LONG).show();
+                }
+            });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -107,6 +125,7 @@ public class MaterialsActivity extends AppCompatActivity {
         prefs     = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         googleTts = new GoogleTtsManager(this);
         googleStt = new GoogleSttManager(this);
+        lastKnownMicPermission = MicPermissionHelper.hasAudioPermission(this);
         hybridSpeech = new HybridSpeechManager(this);
         hybridSpeech.initVosk(
                 () -> Log.d("Materials_STT", "Vosk model ready — now the primary listen engine."),
@@ -182,16 +201,38 @@ public class MaterialsActivity extends AppCompatActivity {
             return;
         }
         if (MicPermissionHelper.isPermanentlyDenied(this)) {
-            updateVoiceStatus("Microphone access blocked. Enable it in Settings for voice commands.");
+            explainPermanentDenialAndOpenSettings();
             return;
         }
         if (MicPermissionHelper.isScreenReaderActive(this)) {
             updateVoiceStatus("Microphone permission needed for voice commands.");
             return;
         }
-        MicPermissionHelper.markRequested(this);
-        ActivityCompat.requestPermissions(this,
-                new String[]{Manifest.permission.RECORD_AUDIO}, RECORD_AUDIO_CODE);
+        requestMicPermissionWithRationale();
+    }
+
+    private void requestMicPermissionWithRationale() {
+        updateVoiceStatus("Requesting microphone access...");
+        isTtsSpeaking = true;
+        stopListening();
+        googleTts.speak("I need access to your microphone for voice commands. " +
+                "A system permission dialog will appear next — please allow it.", () -> {
+            isTtsSpeaking = false;
+            MicPermissionHelper.markRequested(this);
+            micPermissionRequestInFlight = true;
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO);
+        });
+    }
+
+    private void explainPermanentDenialAndOpenSettings() {
+        updateVoiceStatus("Microphone permission blocked.");
+        isTtsSpeaking = true;
+        stopListening();
+        googleTts.speak("Microphone access was previously denied and can't be requested again here. " +
+                "Opening app settings so you can enable it under Permissions.", () -> {
+            isTtsSpeaking = false;
+            MicPermissionHelper.openAppSettings(this);
+        });
     }
 
     private void initSpeechRecognizer() {
@@ -282,23 +323,28 @@ public class MaterialsActivity extends AppCompatActivity {
     private void cascadeFromBuiltIn() {
         if (isListening || isTtsSpeaking) return;
         isListening = true;
+        final int mySession = voiceSessionId;
 
         cascadeSession.cascade(this, "command", null, new SttCascadeSession.Listener() {
             @Override public void onListeningStarted() {
+                if (mySession != voiceSessionId) return;
                 updateVoiceStatus("Listening...");
                 updateRecognizedText("Waiting for speech...");
             }
 
             @Override public void onPartialResult(String partial) {
+                if (mySession != voiceSessionId) return;
                 updateRecognizedText("Hearing: " + partial);
             }
 
             @Override public void onTranscript(String transcript) {
+                if (mySession != voiceSessionId) return;
                 isListening = false;
                 handleCommand(transcript);
             }
 
             @Override public void onExhausted() {
+                if (mySession != voiceSessionId) return;
                 isListening = false;
                 if (!isTtsSpeaking) scheduleListening(1000);
             }
@@ -321,6 +367,7 @@ public class MaterialsActivity extends AppCompatActivity {
 
     private void stopListening() {
         isListening = false;
+        voiceSessionId++;
         if (cascadeSession != null) cascadeSession.cancel();
         try { if (speechRecognizer != null) speechRecognizer.stopListening(); } catch (Exception ignored) {}
         try { if (speechRecognizer != null) speechRecognizer.cancel(); }        catch (Exception ignored) {}
@@ -970,6 +1017,14 @@ public class MaterialsActivity extends AppCompatActivity {
         setActiveNav("materials");
         applyFontSize();
         loadMaterials();
+
+        boolean nowGranted = MicPermissionHelper.hasAudioPermission(this);
+        if (nowGranted && !lastKnownMicPermission && !micPermissionRequestInFlight) {
+            updateVoiceStatus("Microphone enabled.");
+            initSpeechRecognizer();
+        }
+        lastKnownMicPermission = nowGranted;
+
         if (!isTtsSpeaking) scheduleListening(600);
     }
 
@@ -992,19 +1047,5 @@ public class MaterialsActivity extends AppCompatActivity {
         if (googleStt != null) googleStt.destroy();
         if (googleTts != null) googleTts.destroy();
         super.onDestroy();
-    }
-
-    @Override public void onRequestPermissionsResult(int code, @NonNull String[] perms, @NonNull int[] results) {
-        super.onRequestPermissionsResult(code, perms, results);
-        if (code == RECORD_AUDIO_CODE) {
-            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) {
-                initSpeechRecognizer();
-                handler.postDelayed(() ->
-                        speak("Materials screen. Say help for available commands.", true), 900);
-            } else {
-                updateVoiceStatus("Microphone permission denied.");
-                Toast.makeText(this, "Microphone permission is required.", Toast.LENGTH_LONG).show();
-            }
-        }
     }
 }

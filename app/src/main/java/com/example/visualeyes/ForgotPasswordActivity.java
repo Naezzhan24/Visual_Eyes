@@ -4,6 +4,7 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Patterns;
 import android.view.View;
 import android.view.animation.OvershootInterpolator;
 import android.widget.Button;
@@ -14,35 +15,54 @@ import android.widget.Toast;
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.android.volley.NoConnectionError;
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.TimeoutError;
+import com.android.volley.toolbox.StringRequest;
+import com.android.volley.toolbox.Volley;
+
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.nio.charset.StandardCharsets;
+
 public class ForgotPasswordActivity extends AppCompatActivity {
 
     private TextView closeButton, resendOtpText, backToLoginText;
     private Button   confirmButton;
-    private EditText phoneInput, otpInput;
+    private EditText emailInput, otpInput;
 
     private GoogleTtsManager googleTts;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private RequestQueue requestQueue;
+
+    private static final String REQUEST_CODE_URL =
+            "http://10.118.24.232/visualed/request_reset_code.php";
+
+    private boolean codeSent = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_forgot_password);
 
-        googleTts = new GoogleTtsManager(this);
+        googleTts    = new GoogleTtsManager(this);
+        requestQueue = Volley.newRequestQueue(this);
 
         closeButton     = findViewById(R.id.btnClose);
         resendOtpText   = findViewById(R.id.txtResendOtp);
         backToLoginText = findViewById(R.id.txtBackToLogin);
         confirmButton   = findViewById(R.id.btnConfirm);
-        phoneInput      = findViewById(R.id.etPhoneNumber);
+        emailInput      = findViewById(R.id.etEmail);
         otpInput        = findViewById(R.id.etOtp);
 
         animateViews();
 
         handler.postDelayed(() ->
                 googleTts.speak("Forgot password screen. " +
-                        "Please enter your phone number, then tap Send OTP. " +
-                        "Enter the OTP you receive, then tap Confirm.", null), 600);
+                        "Please enter your registered email, then tap Resend Code to receive " +
+                        "a verification code. Enter the code you receive, then tap Confirm.", null), 600);
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() { finishWithAnimation(); }
@@ -56,42 +76,37 @@ public class ForgotPasswordActivity extends AppCompatActivity {
 
         resendOtpText.setOnClickListener(v -> {
             animateClick(v);
-            String phone = phoneInput.getText().toString().trim();
-            if (phone.isEmpty()) {
-                phoneInput.setError("Enter phone number first");
-                phoneInput.requestFocus();
-                shakeView(phoneInput);
-                googleTts.speak("Please enter your phone number first.", null);
-            } else {
-                Toast.makeText(this, "OTP sent to " + phone, Toast.LENGTH_SHORT).show();
-                googleTts.speak("OTP sent to " + phone + ". Please check your messages.", null);
-            }
+            requestResetCode();
         });
 
         confirmButton.setOnClickListener(v -> {
             animateClick(v);
-            String phone = phoneInput.getText().toString().trim();
-            String otp   = otpInput.getText().toString().trim();
+            String email = emailInput.getText().toString().trim();
+            String code  = otpInput.getText().toString().trim();
 
-            if (phone.isEmpty()) {
-                phoneInput.setError("Required");
-                phoneInput.requestFocus();
-                shakeView(phoneInput);
-                googleTts.speak("Please enter your phone number.", null);
+            if (email.isEmpty()) {
+                emailInput.setError("Required");
+                emailInput.requestFocus();
+                shakeView(emailInput);
+                googleTts.speak("Please enter your email.", null);
                 return;
             }
-            if (otp.isEmpty()) {
-                otpInput.setError("Enter OTP");
+            if (!codeSent) {
+                googleTts.speak("Please tap Resend Code first to receive your verification code.", null);
+                return;
+            }
+            if (code.isEmpty()) {
+                otpInput.setError("Enter the code");
                 otpInput.requestFocus();
                 shakeView(otpInput);
-                googleTts.speak("Please enter the OTP sent to your phone.", null);
+                googleTts.speak("Please enter the code sent to your email.", null);
                 return;
             }
 
-            googleTts.speak("OTP verified. Opening reset password screen.", () -> {
-                Toast.makeText(this, "OTP Verified!", Toast.LENGTH_SHORT).show();
+            googleTts.speak("Opening reset password screen.", () -> {
                 Intent intent = new Intent(ForgotPasswordActivity.this, ResetPasswordActivity.class);
-                intent.putExtra("phone_number", phone);
+                intent.putExtra("email", email);
+                intent.putExtra("code", code);
                 startActivity(intent);
                 overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left);
             });
@@ -104,8 +119,68 @@ public class ForgotPasswordActivity extends AppCompatActivity {
         });
     }
 
+    private void requestResetCode() {
+        String email = emailInput.getText().toString().trim();
+
+        if (email.isEmpty() || !Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+            emailInput.setError("Enter a valid email");
+            emailInput.requestFocus();
+            shakeView(emailInput);
+            googleTts.speak("Please enter a valid email address first.", null);
+            return;
+        }
+
+        resendOtpText.setEnabled(false);
+        googleTts.speak("Sending verification code.", null);
+
+        JSONObject body = new JSONObject();
+        try {
+            body.put("email", email);
+        } catch (JSONException e) {
+            resendOtpText.setEnabled(true);
+            googleTts.speak("Something went wrong. Please try again.", null);
+            return;
+        }
+        final String bodyStr = body.toString();
+
+        StringRequest request = new StringRequest(
+                Request.Method.POST,
+                REQUEST_CODE_URL,
+                response -> {
+                    resendOtpText.setEnabled(true);
+                    try {
+                        JSONObject json    = new JSONObject(response);
+                        boolean    success = json.getBoolean("success");
+                        String     message = json.getString("message");
+                        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+                        if (success) {
+                            codeSent = true;
+                            otpInput.requestFocus();
+                        }
+                        googleTts.speak(message, null);
+                    } catch (JSONException e) {
+                        Toast.makeText(this, "Invalid server response.", Toast.LENGTH_SHORT).show();
+                        googleTts.speak("Invalid server response. Please try again.", null);
+                    }
+                },
+                error -> {
+                    resendOtpText.setEnabled(true);
+                    String msg = "Failed to send verification code.";
+                    if (error instanceof TimeoutError)      msg = "Request timed out.";
+                    else if (error instanceof NoConnectionError) msg = "No internet connection.";
+                    Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+                    googleTts.speak(msg, null);
+                }
+        ) {
+            @Override public byte[] getBody() { return bodyStr.getBytes(StandardCharsets.UTF_8); }
+            @Override public String getBodyContentType() { return "application/json; charset=utf-8"; }
+        };
+
+        requestQueue.add(request);
+    }
+
     private void animateViews() {
-        View[] views = { closeButton, phoneInput, otpInput,
+        View[] views = { closeButton, emailInput, otpInput,
                 resendOtpText, confirmButton, backToLoginText };
         for (int i = 0; i < views.length; i++) {
             View v = views[i];
@@ -142,6 +217,7 @@ public class ForgotPasswordActivity extends AppCompatActivity {
     @Override protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
         if (googleTts != null) googleTts.destroy();
+        if (requestQueue != null) requestQueue.cancelAll(this);
         super.onDestroy();
     }
 }

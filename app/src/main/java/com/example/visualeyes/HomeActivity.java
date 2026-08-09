@@ -90,6 +90,11 @@ public class HomeActivity extends AppCompatActivity {
     private boolean isTtsSpeaking = false;
     private String  lastMessage   = "Welcome to your home screen.";
 
+    private int voiceSessionId = 0;
+
+    private boolean micPermissionRequestInFlight = false;
+    private boolean lastKnownMicPermission       = false;
+
     private long lastTapTime = 0L;
     private int  tapCount    = 0;
     private static final long TRIPLE_TAP_WINDOW_MS = 600L;
@@ -110,9 +115,11 @@ public class HomeActivity extends AppCompatActivity {
 
     private final ActivityResultLauncher<String> micPermissionLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
+                micPermissionRequestInFlight = false;
+                lastKnownMicPermission = granted;
                 if (granted) {
                     updateVoiceStatus("Microphone enabled.");
-                    if (!isTtsSpeaking) scheduleListening(400);
+                    speak("Microphone permission granted.", true);
                 } else {
                     updateVoiceStatus("Microphone permission denied.");
                 }
@@ -121,15 +128,38 @@ public class HomeActivity extends AppCompatActivity {
     private void checkMicPermission() {
         if (MicPermissionHelper.hasAudioPermission(this)) return;
         if (MicPermissionHelper.isPermanentlyDenied(this)) {
-            updateVoiceStatus("Microphone access blocked. Enable it in Settings for voice commands.");
+            explainPermanentDenialAndOpenSettings();
             return;
         }
         if (MicPermissionHelper.isScreenReaderActive(this)) {
             updateVoiceStatus("Microphone permission needed for voice commands.");
             return;
         }
-        MicPermissionHelper.markRequested(this);
-        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO);
+        requestMicPermissionWithRationale();
+    }
+
+    private void requestMicPermissionWithRationale() {
+        updateVoiceStatus("Requesting microphone access...");
+        isTtsSpeaking = true;
+        stopListening();
+        googleTts.speak("I need access to your microphone for voice commands. " +
+                "A system permission dialog will appear next — please allow it.", () -> {
+            isTtsSpeaking = false;
+            MicPermissionHelper.markRequested(this);
+            micPermissionRequestInFlight = true;
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO);
+        });
+    }
+
+    private void explainPermanentDenialAndOpenSettings() {
+        updateVoiceStatus("Microphone permission blocked.");
+        isTtsSpeaking = true;
+        stopListening();
+        googleTts.speak("Microphone access was previously denied and can't be requested again here. " +
+                "Opening app settings so you can enable it under Permissions.", () -> {
+            isTtsSpeaking = false;
+            MicPermissionHelper.openAppSettings(this);
+        });
     }
 
     @Override
@@ -141,6 +171,7 @@ public class HomeActivity extends AppCompatActivity {
         prefs        = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         googleTts    = new GoogleTtsManager(this);
         googleStt    = new GoogleSttManager(this);
+        lastKnownMicPermission = MicPermissionHelper.hasAudioPermission(this);
 
         bindViews();
         setActiveNav("home");
@@ -318,14 +349,17 @@ public class HomeActivity extends AppCompatActivity {
     private void cascadeFromBuiltIn() {
         if (isListening || isTtsSpeaking) return;
         isListening = true;
+        final int mySession = voiceSessionId;
 
         cascadeSession.cascade(this, "command", null, new SttCascadeSession.Listener() {
             @Override public void onListeningStarted() {
+                if (mySession != voiceSessionId) return;
                 updateVoiceStatus("Listening...");
                 updateRecognizedText("Waiting for speech...");
             }
 
             @Override public void onPartialResult(String partial) {
+                if (mySession != voiceSessionId) return;
                 updateRecognizedText("Hearing: " + partial);
                 String norm = normalize(partial);
                 if (isQuickCommand(norm)) {
@@ -336,11 +370,13 @@ public class HomeActivity extends AppCompatActivity {
             }
 
             @Override public void onTranscript(String transcript) {
+                if (mySession != voiceSessionId) return;
                 isListening = false;
                 handleCommand(transcript);
             }
 
             @Override public void onExhausted() {
+                if (mySession != voiceSessionId) return;
                 isListening = false;
                 if (!isTtsSpeaking) scheduleListening(1000);
             }
@@ -362,6 +398,7 @@ public class HomeActivity extends AppCompatActivity {
 
     private void stopListening() {
         isListening = false;
+        voiceSessionId++;
         if (cascadeSession != null) cascadeSession.cancel();
         try { if (speechRecognizer != null) speechRecognizer.stopListening(); } catch (Exception ignored) {}
         try { if (speechRecognizer != null) speechRecognizer.cancel(); }        catch (Exception ignored) {}
@@ -911,6 +948,16 @@ public class HomeActivity extends AppCompatActivity {
         super.onResume();
         applyFontSize();
         loadLatestMaterial();
+
+        boolean nowGranted = MicPermissionHelper.hasAudioPermission(this);
+        // Covers a grant obtained any way other than our own in-app request —
+        // returning from Settings, a permission change made elsewhere, or a
+        // process restart landing here with permission already present.
+        if (nowGranted && !lastKnownMicPermission && !micPermissionRequestInFlight) {
+            updateVoiceStatus("Microphone enabled.");
+        }
+        lastKnownMicPermission = nowGranted;
+
         if (!isTtsSpeaking) scheduleListening(600);
     }
 
