@@ -3,6 +3,10 @@
     <style name="Base.Theme.VisualEyes" parent="Theme.Material3.DayNight.NoActionBar">
         <!-- Customize your light theme here. -->
         <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+        <!-- Needed for the bottom nav's shared-element transition between
+             Home/Materials/Profile — lets it stay visually anchored while
+             only the rest of the screen transitions. -->
+        <item name="android:windowActivityTransitions">true</item>
     </style>
 
     <style name="Theme.VisualEyes" parent="Base.Theme.VisualEyes" />

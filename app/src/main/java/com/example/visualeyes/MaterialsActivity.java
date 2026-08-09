@@ -1,6 +1,7 @@
 package com.example.visualeyes;
 
 import android.Manifest;
+import android.app.ActivityOptions;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
@@ -12,6 +13,7 @@ import android.os.Vibrator;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
+import android.transition.Fade;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -122,6 +124,7 @@ public class MaterialsActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        setupNavTransitions();
         setContentView(R.layout.activity_materials);
 
         prefs     = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
@@ -876,15 +879,33 @@ public class MaterialsActivity extends AppCompatActivity {
 
     private void goHome() {
         stopListening();
-        startActivity(new Intent(this, HomeActivity.class));
-        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right);
-        finish();
+        startNavTransition(new Intent(this, HomeActivity.class));
     }
 
     private void goProfile() {
         stopListening();
-        startActivity(new Intent(this, ProfileActivity.class));
-        overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left);
+        startNavTransition(new Intent(this, ProfileActivity.class));
+    }
+
+    /** Content (and window background) fades between screens as usual, but the
+     *  bottom nav bar is shared across Home/Materials/Profile's layouts via the
+     *  same transitionName, so the OS treats it as one continuous view instead
+     *  of animating it away with the rest of the outgoing screen. */
+    private void setupNavTransitions() {
+        getWindow().setExitTransition(new Fade());
+        getWindow().setEnterTransition(new Fade());
+        getWindow().setReenterTransition(new Fade());
+        getWindow().setReturnTransition(new Fade());
+    }
+
+    private void startNavTransition(Intent intent) {
+        if (bottomNavCard != null) {
+            ActivityOptions options = ActivityOptions.makeSceneTransitionAnimation(
+                    this, bottomNavCard, "bottom_nav");
+            startActivity(intent, options.toBundle());
+        } else {
+            startActivity(intent);
+        }
         finish();
     }
 
