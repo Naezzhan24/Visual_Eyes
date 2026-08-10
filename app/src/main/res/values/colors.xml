@@ -19,10 +19,13 @@
     <!-- Dividers / subtle fills -->
     <color name="color_divider">#E7D9DE</color>
 
-    <!-- Intro animation: colors of the book-cover overlay in activity_intro,
-         sampled directly from logo_visualed.png so the panel blends into
-         the icon's own iris fill until it opens. -->
+    <!-- Intro animation palette, sampled directly from logo_visualed.png
+         so the animated mark matches the static logo exactly. -->
+    <color name="color_logo_red_light">#A1121A</color>
     <color name="color_logo_red_dark">#4A0508</color>
     <color name="color_logo_maroon_deep">#350002</color>
+    <color name="color_logo_page">#F6F6F6</color>
+    <color name="color_logo_page_shadow">#9C7F82</color>
+    <color name="color_logo_page_line">#C9A9AC</color>
 
 </resources>
