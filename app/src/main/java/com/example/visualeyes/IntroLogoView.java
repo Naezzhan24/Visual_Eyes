@@ -11,7 +11,6 @@ import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.RectF;
 import android.graphics.Shader;
 import android.os.Handler;
 import android.os.Looper;
@@ -25,33 +24,40 @@ import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 
 /**
- * Draws and animates the VisualED mark (eye + open book) using the same
- * geometry and palette as logo_visualed.png. Plays once as an intro: the
- * book opens (with a page-turn flourish), then the eye blinks, then it
- * settles on the static mark.
+ * Draws and animates the VisualED mark (eye + open book) by matching
+ * logo_visualed.png layer for layer: a bright outer lid ribbon, a white
+ * crease gap, a darker inner ribbon, then a deep maroon fill holding the
+ * book and its light-burst. Plays once as an intro: the book opens (with
+ * a page-turn flourish), then the eye blinks, then it settles on the
+ * static mark.
  */
 public class IntroLogoView extends View {
 
-    private final Paint lidWhitePaint = new Paint(Paint.ANTIALIAS_FLAG);
-    private final Paint lidFillPaint = new Paint(Paint.ANTIALIAS_FLAG);
-    private final Paint lidStrokePaint = new Paint(Paint.ANTIALIAS_FLAG);
-    private final Paint irisPaint = new Paint(Paint.ANTIALIAS_FLAG);
+    private static final int PETAL_COUNT = 5;
+    private static final float[] PETAL_ANGLES_DEG = {-52f, -26f, -2f, 20f, 42f};
+    private static final float[] PETAL_LEN_FACTOR = {0.60f, 0.72f, 0.64f, 0.54f, 0.46f};
+    private static final float[] PETAL_WIDTH_FACTOR = {0.13f, 0.16f, 0.15f, 0.13f, 0.11f};
+
+    private final Paint outerRedPaint = new Paint(Paint.ANTIALIAS_FLAG);
+    private final Paint gapWhitePaint = new Paint(Paint.ANTIALIAS_FLAG);
+    private final Paint innerRedPaint = new Paint(Paint.ANTIALIAS_FLAG);
+    private final Paint fillMaroonPaint = new Paint(Paint.ANTIALIAS_FLAG);
     private final Paint pagePaint = new Paint(Paint.ANTIALIAS_FLAG);
     private final Paint pageStrokePaint = new Paint(Paint.ANTIALIAS_FLAG);
     private final Paint pageLinePaint = new Paint(Paint.ANTIALIAS_FLAG);
     private final Paint spinePaint = new Paint(Paint.ANTIALIAS_FLAG);
-    private final Paint sparkPaint = new Paint(Paint.ANTIALIAS_FLAG);
+    private final Paint[] petalPaints = new Paint[PETAL_COUNT];
 
-    private final Path eyePathOuter = new Path();
-    private final Path eyePathWide = new Path();
-    private final Path eyePathIris = new Path();
+    private final Path eyeOuterRed = new Path();
+    private final Path eyeGapWhite = new Path();
+    private final Path eyeInnerRed = new Path();
+    private final Path eyeFillMaroon = new Path();
     private final Path leftPagePath = new Path();
     private final Path rightPagePath = new Path();
-    private final RectF leftPageRect = new RectF();
-    private final RectF rightPageRect = new RectF();
-    private final float[] sparkLines = new float[16]; // 4 rays * 4 floats
+    private final Path[] petalPaths = new Path[PETAL_COUNT];
 
-    private float cx, cy, halfW, halfH, bookHalfWFull, bookHalfH, pageCornerRadius;
+    private float cx, cy, halfW, halfH;
+    private float bookHalfWFull, bookTopY, bookBottomY, bookNotchDepth, bookOuterBulge;
 
     // Animated state, updated by playIntro()'s chained animators.
     private float entranceAlpha = 0f;
@@ -74,16 +80,11 @@ public class IntroLogoView extends View {
     }
 
     private void init() {
-        lidWhitePaint.setColor(Color.WHITE);
-        lidWhitePaint.setStyle(Paint.Style.FILL);
-
-        lidFillPaint.setStyle(Paint.Style.FILL);
-
-        lidStrokePaint.setStyle(Paint.Style.STROKE);
-        lidStrokePaint.setColor(ContextCompat.getColor(getContext(), R.color.color_logo_red_dark));
-
-        irisPaint.setStyle(Paint.Style.FILL);
-        irisPaint.setColor(ContextCompat.getColor(getContext(), R.color.color_logo_maroon_deep));
+        outerRedPaint.setStyle(Paint.Style.FILL);
+        gapWhitePaint.setStyle(Paint.Style.FILL);
+        gapWhitePaint.setColor(Color.WHITE);
+        innerRedPaint.setStyle(Paint.Style.FILL);
+        fillMaroonPaint.setStyle(Paint.Style.FILL);
 
         pagePaint.setColor(ContextCompat.getColor(getContext(), R.color.color_logo_page));
         pagePaint.setStyle(Paint.Style.FILL);
@@ -99,9 +100,12 @@ public class IntroLogoView extends View {
         spinePaint.setStrokeCap(Paint.Cap.ROUND);
         spinePaint.setColor(ContextCompat.getColor(getContext(), R.color.color_logo_maroon_deep));
 
-        sparkPaint.setStyle(Paint.Style.STROKE);
-        sparkPaint.setStrokeCap(Paint.Cap.ROUND);
-        sparkPaint.setColor(ContextCompat.getColor(getContext(), R.color.color_logo_red_light));
+        for (int i = 0; i < PETAL_COUNT; i++) {
+            petalPaths[i] = new Path();
+            Paint p = new Paint(Paint.ANTIALIAS_FLAG);
+            p.setStyle(Paint.Style.FILL);
+            petalPaints[i] = p;
+        }
     }
 
     @Override
@@ -117,41 +121,42 @@ public class IntroLogoView extends View {
         halfW = eyeW / 2f;
         halfH = eyeH / 2f;
 
-        buildEyePath(eyePathOuter, halfW, halfH);
-        buildEyePath(eyePathWide, halfW * 1.08f, halfH * 1.12f);
-        buildEyePath(eyePathIris, halfW * 0.80f, halfH * 0.74f);
+        // Four nested almond layers, painted back-to-front, reproduce the
+        // logo's banded lid: outer ribbon -> white crease -> inner ribbon
+        // -> deep fill. Each layer just needs to be a bit smaller than the
+        // one behind it for its band to peek through.
+        buildEyePath(eyeOuterRed, halfW, halfH);
+        buildEyePath(eyeGapWhite, halfW * 0.88f, halfH * 0.86f);
+        buildEyePath(eyeInnerRed, halfW * 0.80f, halfH * 0.76f);
+        buildEyePath(eyeFillMaroon, halfW * 0.66f, halfH * 0.60f);
 
-        lidFillPaint.setShader(new LinearGradient(
-                cx, cy - halfH, cx, cy + halfH,
+        outerRedPaint.setShader(new LinearGradient(
+                cx, cy - halfH, cx, cy + halfH * 0.3f,
                 ContextCompat.getColor(getContext(), R.color.color_logo_red_light),
                 ContextCompat.getColor(getContext(), R.color.color_logo_red_dark),
                 Shader.TileMode.CLAMP));
-        lidStrokePaint.setStrokeWidth(Math.max(2f, halfH * 0.05f));
+        innerRedPaint.setShader(new LinearGradient(
+                cx, cy - halfH * 0.7f, cx, cy + halfH * 0.7f,
+                ContextCompat.getColor(getContext(), R.color.color_logo_red_dark),
+                ContextCompat.getColor(getContext(), R.color.color_logo_maroon_deep),
+                Shader.TileMode.CLAMP));
+        fillMaroonPaint.setShader(new LinearGradient(
+                cx, cy - halfH * 0.55f, cx, cy + halfH * 0.55f,
+                blend(ContextCompat.getColor(getContext(), R.color.color_logo_maroon_deep), Color.BLACK, 0.0f),
+                blend(ContextCompat.getColor(getContext(), R.color.color_logo_maroon_deep), Color.BLACK, 0.35f),
+                Shader.TileMode.CLAMP));
 
-        bookHalfWFull = halfW * 0.30f;
-        bookHalfH = halfH * 0.56f;
-        pageCornerRadius = Math.max(4f, bookHalfWFull * 0.18f);
+        bookHalfWFull = halfW * 0.34f;
+        bookTopY = cy - halfH * 0.60f;
+        bookBottomY = cy + halfH * 0.60f;
+        bookNotchDepth = (bookBottomY - bookTopY) * 0.34f;
+        bookOuterBulge = bookHalfWFull * 0.10f;
 
         pageStrokePaint.setStrokeWidth(Math.max(1.5f, halfH * 0.03f));
-        pageLinePaint.setStrokeWidth(Math.max(1.5f, halfH * 0.035f));
-        spinePaint.setStrokeWidth(Math.max(2f, halfH * 0.055f));
-        sparkPaint.setStrokeWidth(Math.max(2f, halfH * 0.045f));
+        pageLinePaint.setStrokeWidth(Math.max(1.5f, halfH * 0.032f));
+        spinePaint.setStrokeWidth(Math.max(2f, halfH * 0.05f));
 
-        // Light-ray spark fanning out from the eye's right inner corner.
-        float sx = cx + halfW * 0.60f;
-        float sy = cy;
-        float[] angles = {-38f, -13f, 13f, 38f};
-        float rayLen = halfH * 0.55f;
-        float rayStart = halfH * 0.15f;
-        for (int i = 0; i < angles.length; i++) {
-            double rad = Math.toRadians(angles[i]);
-            float dx = (float) Math.cos(rad);
-            float dy = (float) Math.sin(rad);
-            sparkLines[i * 4] = sx + dx * rayStart;
-            sparkLines[i * 4 + 1] = sy + dy * rayStart;
-            sparkLines[i * 4 + 2] = sx + dx * rayLen;
-            sparkLines[i * 4 + 3] = sy + dy * rayLen;
-        }
+        buildPetals();
     }
 
     /** Builds a flat almond ("eye") path centered at (cx, cy) with the given half-extents. */
@@ -167,6 +172,78 @@ public class IntroLogoView extends View {
         path.close();
     }
 
+    /**
+     * Builds one open-book page as a "bowtie" petal: the inner (spine) edge
+     * is pulled into a sharp notch top and bottom, the outer edge bulges
+     * gently outward, matching the book silhouette in the logo.
+     */
+    private void buildPagePath(Path path, boolean leftPage, float halfBookW) {
+        float spineX = cx;
+        float outerX = leftPage ? cx - halfBookW : cx + halfBookW;
+        float sign = leftPage ? -1f : 1f;
+        float midY = (bookTopY + bookBottomY) / 2f;
+
+        path.reset();
+        path.moveTo(outerX, bookTopY);
+        path.quadTo(spineX, bookTopY, spineX, bookTopY + bookNotchDepth);
+        path.lineTo(spineX, bookBottomY - bookNotchDepth);
+        path.quadTo(spineX, bookBottomY, outerX, bookBottomY);
+        path.quadTo(outerX + sign * bookOuterBulge, midY, outerX, bookTopY);
+        path.close();
+    }
+
+    private void buildPetals() {
+        float baseX = cx + halfW * 0.58f;
+        float baseY = cy - halfH * 0.02f;
+        float unit = halfH;
+
+        for (int i = 0; i < PETAL_COUNT; i++) {
+            double rad = Math.toRadians(PETAL_ANGLES_DEG[i]);
+            float dx = (float) Math.cos(rad);
+            float dy = (float) Math.sin(rad);
+            float px = -dy;
+            float py = dx;
+
+            float length = unit * PETAL_LEN_FACTOR[i];
+            float width = unit * PETAL_WIDTH_FACTOR[i];
+
+            float tipX = baseX + dx * length;
+            float tipY = baseY + dy * length;
+            float ctrlOutX = baseX + dx * length * 0.62f + px * (width * 0.42f);
+            float ctrlOutY = baseY + dy * length * 0.62f + py * (width * 0.42f);
+            float ctrlInX = baseX + dx * length * 0.62f - px * (width * 0.42f);
+            float ctrlInY = baseY + dy * length * 0.62f - py * (width * 0.42f);
+            float capCtrlX = tipX + dx * (width * 0.20f);
+            float capCtrlY = tipY + dy * (width * 0.20f);
+            float tipLX = tipX + px * (width / 2f);
+            float tipLY = tipY + py * (width / 2f);
+            float tipRX = tipX - px * (width / 2f);
+            float tipRY = tipY - py * (width / 2f);
+
+            Path p = petalPaths[i];
+            p.reset();
+            p.moveTo(baseX, baseY);
+            p.quadTo(ctrlOutX, ctrlOutY, tipLX, tipLY);
+            p.quadTo(capCtrlX, capCtrlY, tipRX, tipRY);
+            p.quadTo(ctrlInX, ctrlInY, baseX, baseY);
+            p.close();
+
+            petalPaints[i].setShader(new LinearGradient(
+                    baseX, baseY, tipX, tipY,
+                    ContextCompat.getColor(getContext(), R.color.color_logo_maroon_deep),
+                    ContextCompat.getColor(getContext(), R.color.color_logo_red_light),
+                    Shader.TileMode.CLAMP));
+        }
+    }
+
+    private static int blend(int color, int toward, float ratio) {
+        float r = clamp01(ratio);
+        int red = (int) (Color.red(color) + (Color.red(toward) - Color.red(color)) * r);
+        int g = (int) (Color.green(color) + (Color.green(toward) - Color.green(color)) * r);
+        int b = (int) (Color.blue(color) + (Color.blue(toward) - Color.blue(color)) * r);
+        return Color.argb(255, red, g, b);
+    }
+
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
@@ -179,14 +256,17 @@ public class IntroLogoView extends View {
         canvas.scale(entranceScale, entranceScale, cx, cy);
         canvas.scale(1f, clamp(blinkOpenness, 0.045f, 1f), cx, cy);
 
-        canvas.drawPath(eyePathWide, lidWhitePaint);
-        canvas.drawPath(eyePathOuter, lidFillPaint);
-        canvas.drawPath(eyePathOuter, lidStrokePaint);
-        canvas.drawPath(eyePathIris, irisPaint);
+        canvas.drawPath(eyeOuterRed, outerRedPaint);
+        canvas.drawPath(eyeGapWhite, gapWhitePaint);
+        canvas.drawPath(eyeInnerRed, innerRedPaint);
+        canvas.drawPath(eyeFillMaroon, fillMaroonPaint);
 
-        if (bookOpenProgress > 0.3f) {
-            sparkPaint.setAlpha((int) (255 * clamp01((bookOpenProgress - 0.3f) / 0.5f)));
-            canvas.drawLines(sparkLines, sparkPaint);
+        if (bookOpenProgress > 0.25f) {
+            int alpha = (int) (255 * clamp01((bookOpenProgress - 0.25f) / 0.55f));
+            for (int i = 0; i < PETAL_COUNT; i++) {
+                petalPaints[i].setAlpha(alpha);
+                canvas.drawPath(petalPaths[i], petalPaints[i]);
+            }
         }
 
         drawBook(canvas);
@@ -198,15 +278,12 @@ public class IntroLogoView extends View {
     private void drawBook(Canvas canvas) {
         float bookHalfW = bookHalfWFull * bookOpenProgress;
         if (bookHalfW < 0.5f) {
-            canvas.drawLine(cx, cy - bookHalfH, cx, cy + bookHalfH, spinePaint);
+            canvas.drawLine(cx, bookTopY, cx, bookBottomY, spinePaint);
             return;
         }
 
-        leftPageRect.set(cx - bookHalfW, cy - bookHalfH, cx, cy + bookHalfH);
-        rightPageRect.set(cx, cy - bookHalfH, cx + bookHalfW, cy + bookHalfH);
-
-        roundedPage(leftPagePath, leftPageRect, true);
-        roundedPage(rightPagePath, rightPageRect, false);
+        buildPagePath(leftPagePath, true, bookHalfW);
+        buildPagePath(rightPagePath, false, bookHalfW);
 
         canvas.drawPath(leftPagePath, pagePaint);
         canvas.drawPath(leftPagePath, pageStrokePaint);
@@ -215,8 +292,8 @@ public class IntroLogoView extends View {
 
         if (pageLineAlpha > 0f) {
             pageLinePaint.setAlpha((int) (255 * pageLineAlpha));
-            drawPageLines(canvas, leftPageRect, false);
-            drawPageLines(canvas, rightPageRect, true);
+            drawPageLines(canvas, true, bookHalfW);
+            drawPageLines(canvas, false, bookHalfW);
         }
 
         // Page-turn flourish: the right leaf briefly rotates edge-on and
@@ -224,7 +301,7 @@ public class IntroLogoView extends View {
         canvas.save();
         canvas.scale(flipScaleX, 1f, cx, cy);
         float shade = 1f - Math.abs(flipScaleX);
-        int flipColor = blendColor(
+        int flipColor = blend(
                 ContextCompat.getColor(getContext(), R.color.color_logo_page),
                 ContextCompat.getColor(getContext(), R.color.color_logo_page_shadow),
                 shade);
@@ -233,38 +310,26 @@ public class IntroLogoView extends View {
         pagePaint.setColor(ContextCompat.getColor(getContext(), R.color.color_logo_page));
         canvas.restore();
 
-        canvas.drawLine(cx, cy - bookHalfH, cx, cy + bookHalfH, spinePaint);
+        canvas.drawLine(cx, bookTopY + bookNotchDepth * 0.9f, cx, bookBottomY - bookNotchDepth * 0.9f, spinePaint);
     }
 
-    private void roundedPage(Path out, RectF rect, boolean leftPage) {
-        float r = pageCornerRadius;
-        float[] radii = leftPage
-                ? new float[]{r, r, 0, 0, 0, 0, r, r}
-                : new float[]{0, 0, r, r, r, r, 0, 0};
-        out.reset();
-        out.addRoundRect(rect, radii, Path.Direction.CW);
-    }
+    private void drawPageLines(Canvas canvas, boolean leftPage, float halfBookW) {
+        float spineX = cx;
+        float outerX = leftPage ? cx - halfBookW : cx + halfBookW;
+        float pad = halfBookW * 0.24f;
+        float xOuter = leftPage ? outerX + pad : outerX - pad;
+        float xSpine = leftPage ? spineX - pad * 0.55f : spineX + pad * 0.55f;
 
-    private void drawPageLines(Canvas canvas, RectF rect, boolean nearSpine) {
-        float width = rect.right - rect.left;
-        float pad = width * 0.22f;
-        float xStart = nearSpine ? rect.left + pad * 0.6f : rect.left + pad;
-        float xEnd = nearSpine ? rect.right - pad : rect.right - pad * 0.6f;
         int lines = 3;
         for (int i = 0; i < lines; i++) {
             float frac = (i + 1f) / (lines + 1f);
-            float y = rect.top + (rect.bottom - rect.top) * frac;
-            canvas.drawLine(xStart, y, xEnd, y, pageLinePaint);
+            float y = bookTopY + (bookBottomY - bookTopY) * frac;
+            float droop = (y - cy) * -0.20f;
+            Path line = new Path();
+            line.moveTo(xOuter, y);
+            line.quadTo((xOuter + xSpine) / 2f, y, xSpine, y + droop);
+            canvas.drawPath(line, pageLinePaint);
         }
-    }
-
-    private static int blendColor(int from, int to, float ratio) {
-        float r = clamp01(ratio);
-        int a = (int) (Color.alpha(from) + (Color.alpha(to) - Color.alpha(from)) * r);
-        int red = (int) (Color.red(from) + (Color.red(to) - Color.red(from)) * r);
-        int g = (int) (Color.green(from) + (Color.green(to) - Color.green(from)) * r);
-        int b = (int) (Color.blue(from) + (Color.blue(to) - Color.blue(from)) * r);
-        return Color.argb(a, red, g, b);
     }
 
     private static float clamp01(float v) {
