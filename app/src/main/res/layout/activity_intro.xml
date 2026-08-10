@@ -14,23 +14,47 @@
         android:gravity="center"
         android:orientation="vertical">
 
-        <com.example.visualeyes.IntroLogoView
-            android:id="@+id/introLogoView"
+        <!-- introIconStage holds the real logo icon (logo_visualed_icon.png,
+             cropped straight from logo_visualed.png) plus two overlay
+             panels that hide the book until the intro's open-book beat.
+             The panels are sized/positioned in code from the icon's actual
+             pixel bounds, so they line up regardless of screen density. -->
+        <FrameLayout
+            android:id="@+id/introIconStage"
             android:layout_width="280dp"
-            android:layout_height="120dp"
-            android:importantForAccessibility="no" />
+            android:layout_height="wrap_content">
 
-        <TextView
-            android:id="@+id/introAppName"
-            android:layout_width="wrap_content"
+            <ImageView
+                android:id="@+id/introIcon"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:adjustViewBounds="true"
+                android:importantForAccessibility="no"
+                android:src="@drawable/logo_visualed_icon" />
+
+            <View
+                android:id="@+id/bookCoverLeft"
+                android:layout_width="1dp"
+                android:layout_height="1dp"
+                android:background="@drawable/bg_intro_book_cover" />
+
+            <View
+                android:id="@+id/bookCoverRight"
+                android:layout_width="1dp"
+                android:layout_height="1dp"
+                android:background="@drawable/bg_intro_book_cover" />
+
+        </FrameLayout>
+
+        <ImageView
+            android:id="@+id/introWordmark"
+            android:layout_width="210dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:fontFamily="sans-serif-condensed"
-            android:letterSpacing="0.02"
-            android:text="@string/app_name"
-            android:textColor="@color/color_logo_red_dark"
-            android:textSize="30sp"
-            android:textStyle="bold" />
+            android:layout_marginTop="16dp"
+            android:adjustViewBounds="true"
+            android:alpha="0"
+            android:contentDescription="@string/app_name"
+            android:src="@drawable/logo_visualed_wordmark" />
 
     </LinearLayout>
 
