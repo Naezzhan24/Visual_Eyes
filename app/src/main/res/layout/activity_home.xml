@@ -314,7 +314,6 @@
         <!-- BOTTOM NAV -->
         <androidx.cardview.widget.CardView
             android:id="@+id/bottomNavCard"
-            android:transitionName="bottom_nav"
             android:layout_width="match_parent"
             android:layout_height="80dp"
             android:layout_marginStart="16dp"

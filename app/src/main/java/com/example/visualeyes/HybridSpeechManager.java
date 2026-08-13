@@ -3,6 +3,7 @@ package com.example.visualeyes;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Process;
 import android.util.Log;
 
 import org.json.JSONObject;
@@ -12,6 +13,8 @@ import org.vosk.android.RecognitionListener;
 import org.vosk.android.SpeechService;
 import org.vosk.android.StorageService;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -28,6 +31,24 @@ public class HybridSpeechManager {
     private static final int    SAMPLE_RATE = 16000;
 
     private static final long   SOFT_STOP_GRACE_MS = 500L;
+
+    // Unpacking + loading the Vosk model from disk is expensive, and every
+    // screen (Home/Materials/Profile, etc.) creates its own HybridSpeechManager
+    // on create and used to reload it every time. Caching the loaded Model for
+    // the life of the process means only the first screen pays that cost —
+    // nav between screens just reuses it instead of reloading from scratch.
+    private static volatile Model sSharedVoskModel;
+
+    // Two screens can call initVosk() back-to-back before the first load
+    // finishes (e.g. navigating away immediately after login) — without this,
+    // each one kicks off its own StorageService.unpack()/Model() load, and two
+    // of those running at once was enough to peg the CPU and freeze the UI for
+    // several seconds. Callers that arrive while a load is already in flight
+    // just queue behind it instead of starting a redundant one.
+    private static final Object VOSK_LOAD_LOCK = new Object();
+    private static boolean sVoskLoadInFlight = false;
+    private static final List<Runnable> sPendingReady  = new ArrayList<>();
+    private static final List<Runnable> sPendingFailed = new ArrayList<>();
 
     private final Context context;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -60,17 +81,54 @@ public class HybridSpeechManager {
     }
 
     public void initVosk(Runnable onReady, Runnable onFailed) {
-        StorageService.unpack(context, "vosk-model-en-us-0.22-lgraph", "model",
+        if (sSharedVoskModel != null) {
+            voskModel = sSharedVoskModel;
+            mainHandler.post(onReady);
+            return;
+        }
+        synchronized (VOSK_LOAD_LOCK) {
+            if (sSharedVoskModel != null) {
+                voskModel = sSharedVoskModel;
+                mainHandler.post(onReady);
+                return;
+            }
+            sPendingReady.add(() -> { voskModel = sSharedVoskModel; onReady.run(); });
+            sPendingFailed.add(onFailed);
+            if (sVoskLoadInFlight) return;
+            sVoskLoadInFlight = true;
+        }
+
+        // Dispatched at background thread priority so the (large, slow-to-load)
+        // model unpack/parse doesn't compete with the UI thread for CPU time —
+        // that contention, not a lock, was what read as a freeze on-screen.
+        executor.execute(() -> {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
+            StorageService.unpack(context, "vosk-model-en-us-0.22-lgraph", "model",
                 model -> {
-                    voskModel = model;
                     Log.d(TAG, "Vosk model loaded OK!");
-                    mainHandler.post(onReady);
+                    List<Runnable> ready;
+                    synchronized (VOSK_LOAD_LOCK) {
+                        sSharedVoskModel = model;
+                        sVoskLoadInFlight = false;
+                        ready = new ArrayList<>(sPendingReady);
+                        sPendingReady.clear();
+                        sPendingFailed.clear();
+                    }
+                    for (Runnable r : ready) mainHandler.post(r);
                 },
                 exception -> {
                     Log.e(TAG, "StorageService unpack failed: " + exception.getMessage());
-                    mainHandler.post(onFailed);
+                    List<Runnable> failed;
+                    synchronized (VOSK_LOAD_LOCK) {
+                        sVoskLoadInFlight = false;
+                        failed = new ArrayList<>(sPendingFailed);
+                        sPendingReady.clear();
+                        sPendingFailed.clear();
+                    }
+                    for (Runnable r : failed) mainHandler.post(r);
                 }
-        );
+            );
+        });
     }
 
     public boolean isReady() {
@@ -240,10 +298,11 @@ public class HybridSpeechManager {
     public void destroy() {
         cancel();
         executor.shutdown();
-        if (voskModel != null) {
-            voskModel.close();
-            voskModel = null;
-        }
+        // voskModel is shared across the process (see sSharedVoskModel) and
+        // outlives any single screen's manager instance, so just drop this
+        // instance's reference — don't close a model another screen may
+        // still be using.
+        voskModel = null;
     }
 
     private static String normalizeSpoken(String spoken) {

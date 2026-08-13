@@ -38,14 +38,14 @@ public class IntroLogoView extends View {
     private static final float[] PETAL_LEN_FACTOR = {0.60f, 0.72f, 0.64f, 0.54f, 0.46f};
     private static final float[] PETAL_WIDTH_FACTOR = {0.13f, 0.16f, 0.15f, 0.13f, 0.11f};
 
-    private final Paint outerRedPaint = new Paint(Paint.ANTIALIAS_FLAG);
-    private final Paint gapWhitePaint = new Paint(Paint.ANTIALIAS_FLAG);
-    private final Paint innerRedPaint = new Paint(Paint.ANTIALIAS_FLAG);
-    private final Paint fillMaroonPaint = new Paint(Paint.ANTIALIAS_FLAG);
-    private final Paint pagePaint = new Paint(Paint.ANTIALIAS_FLAG);
-    private final Paint pageStrokePaint = new Paint(Paint.ANTIALIAS_FLAG);
-    private final Paint pageLinePaint = new Paint(Paint.ANTIALIAS_FLAG);
-    private final Paint spinePaint = new Paint(Paint.ANTIALIAS_FLAG);
+    private final Paint outerRedPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint gapWhitePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint innerRedPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint fillMaroonPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint pagePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint pageStrokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint pageLinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint spinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint[] petalPaints = new Paint[PETAL_COUNT];
 
     private final Path eyeOuterRed = new Path();
@@ -102,7 +102,7 @@ public class IntroLogoView extends View {
 
         for (int i = 0; i < PETAL_COUNT; i++) {
             petalPaths[i] = new Path();
-            Paint p = new Paint(Paint.ANTIALIAS_FLAG);
+            Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
             p.setStyle(Paint.Style.FILL);
             petalPaints[i] = p;
         }
