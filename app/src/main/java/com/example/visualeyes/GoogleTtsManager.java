@@ -36,8 +36,16 @@ public class GoogleTtsManager {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final OkHttpClient httpClient = new OkHttpClient();
 
-    private TextToSpeech androidTts;
-    private boolean androidTtsReady = false;
+    // The Android TextToSpeech engine only ever gets used as a fallback when
+    // the Google Cloud TTS call fails, but every screen used to construct its
+    // own on create anyway — that's a real Binder bind to the system TTS
+    // service each time, and doing it on every nav (plus the outgoing
+    // screen's shutdown() landing around the same time) was pegging the UI
+    // thread for seconds. One shared engine for the process fixes that.
+    private static final Object TTS_LOCK = new Object();
+    private static volatile TextToSpeech sSharedAndroidTts;
+    private static volatile boolean sSharedAndroidTtsReady = false;
+
     private MediaPlayer mediaPlayer;
 
     private int speechGeneration = 0;
@@ -61,15 +69,17 @@ public class GoogleTtsManager {
     }
 
     private void initAndroidTts() {
-        androidTts = new TextToSpeech(context, status -> {
-            if (status == TextToSpeech.SUCCESS) {
-
-                androidTts.setLanguage(Locale.US);
-                androidTts.setSpeechRate(0.95f);
-                androidTtsReady = true;
-                Log.d(TAG, "Android TTS fallback ready.");
-            }
-        });
+        synchronized (TTS_LOCK) {
+            if (sSharedAndroidTts != null) return;
+            sSharedAndroidTts = new TextToSpeech(context, status -> {
+                if (status == TextToSpeech.SUCCESS) {
+                    sSharedAndroidTts.setLanguage(Locale.US);
+                    sSharedAndroidTts.setSpeechRate(0.95f);
+                    sSharedAndroidTtsReady = true;
+                    Log.d(TAG, "Android TTS fallback ready.");
+                }
+            });
+        }
     }
 
     public void speak(String text, TtsCallback callback) {
@@ -187,9 +197,9 @@ public class GoogleTtsManager {
         mainHandler.post(() -> {
             if (myGeneration != speechGeneration) return;
 
-            if (androidTtsReady && text != null) {
+            if (sSharedAndroidTtsReady && text != null) {
                 String uid = "FALLBACK_" + System.currentTimeMillis();
-                androidTts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                sSharedAndroidTts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                     @Override public void onStart(String id) {}
                     @Override public void onDone(String id) {
                         if (callback != null) mainHandler.post(callback::onDone);
@@ -198,7 +208,7 @@ public class GoogleTtsManager {
                         if (callback != null) mainHandler.post(callback::onDone);
                     }
                 });
-                androidTts.speak(text, TextToSpeech.QUEUE_FLUSH, null, uid);
+                sSharedAndroidTts.speak(text, TextToSpeech.QUEUE_FLUSH, null, uid);
             } else {
                 if (callback != null) callback.onDone();
             }
@@ -211,14 +221,15 @@ public class GoogleTtsManager {
             try { mediaPlayer.stop(); mediaPlayer.release(); } catch (Exception ignored) {}
             mediaPlayer = null;
         }
-        if (androidTtsReady && androidTts != null) {
-            androidTts.stop();
+        if (sSharedAndroidTtsReady && sSharedAndroidTts != null) {
+            sSharedAndroidTts.stop();
         }
     }
 
     public void destroy() {
         stopSpeaking();
         executor.shutdown();
-        if (androidTts != null) androidTts.shutdown();
+        // sSharedAndroidTts is shared across the process — another screen's
+        // GoogleTtsManager may still need it, so don't shut it down here.
     }
 }

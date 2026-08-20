@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/introRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_viewer_gradient_bg"
+    android:clickable="true"
+    android:focusable="true">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <com.example.visualeyes.IntroLogoView
+            android:id="@+id/introLogoView"
+            android:layout_width="280dp"
+            android:layout_height="120dp"
+            android:importantForAccessibility="no" />
+
+        <!-- Populated in code with one TextView per letter of the app name,
+             so IntroActivity can pop each one in like it's being written
+             (see buildAppNameLetters / animateAppNameLetters). -->
+        <LinearLayout
+            android:id="@+id/introAppNameContainer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:gravity="center"
+            android:orientation="horizontal" />
+
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/introSkipHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="28dp"
+        android:alpha="0.65"
+        android:text="@string/intro_tap_skip"
+        android:textColor="@color/color_text_on_primary_muted"
+        android:textSize="13sp" />
+
+</FrameLayout>

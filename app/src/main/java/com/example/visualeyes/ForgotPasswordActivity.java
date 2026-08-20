@@ -214,6 +214,13 @@ public class ForgotPasswordActivity extends AppCompatActivity {
         overridePendingTransition(R.anim.fade_in_fast, R.anim.slide_out_right);
     }
 
+    @Override protected void onPause() {
+        super.onPause();
+        // Backgrounding the app or navigating away leaves this activity
+        // paused, not destroyed — its TTS would otherwise keep talking.
+        if (googleTts != null) googleTts.stopSpeaking();
+    }
+
     @Override protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
         if (googleTts != null) googleTts.destroy();

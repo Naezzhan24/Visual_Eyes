@@ -1,7 +1,6 @@
 package com.example.visualeyes;
 
 import android.Manifest;
-import android.app.ActivityOptions;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
@@ -65,7 +64,7 @@ public class HomeActivity extends AppCompatActivity {
     private ImageView iconHome, iconMaterials, iconProfile;
     private TextView textHome, textMaterials, textProfile;
     private LinearLayout navHome, navMaterials, navProfile;
-    private CardView cardAnnouncement, cardLearningMaterial, cardFontSizeControl, bottomNavCard;
+    private CardView cardAnnouncement, cardLearningMaterial, cardFontSizeControl;
     private SwipeRefreshLayout swipeRefreshHome;
     private View topBar;
 
@@ -168,7 +167,6 @@ public class HomeActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setupNavTransitions();
         setContentView(R.layout.activity_home);
 
         authManager  = new AuthManager(this);
@@ -244,7 +242,6 @@ public class HomeActivity extends AppCompatActivity {
         cardAnnouncement            = findViewById(R.id.cardAnnouncement);
         cardLearningMaterial        = findViewById(R.id.cardLearningMaterial);
         cardFontSizeControl         = findViewById(R.id.cardFontSizeControl);
-        bottomNavCard                = findViewById(R.id.bottomNavCard);
         swipeRefreshHome             = findViewById(R.id.swipeRefreshHome);
         drawerLayout                = findViewById(R.id.drawerLayout);
         drawerMaterialsContainer    = findViewById(R.id.drawerMaterialsContainer);
@@ -626,43 +623,22 @@ public class HomeActivity extends AppCompatActivity {
     private void openMaterials() {
         stopListening();
         Intent intent = new Intent(HomeActivity.this, MaterialsActivity.class);
-        startNavTransition(intent);
+        startNavTransition(intent, true);
     }
 
     private void openProfile() {
         stopListening();
         Intent intent = new Intent(HomeActivity.this, ProfileActivity.class);
-        startNavTransition(intent);
+        startNavTransition(intent, true);
     }
 
-    // Default shared-element transition duration is ~300ms; finish() has to
-    // outlast that or the outgoing window gets torn down mid-crossfade.
-    private static final long NAV_TRANSITION_FINISH_MS = 350L;
-
-    /** No explicit content transition — the extra Fade() layered on top of the
-     *  shared-element move was the likely cause of the black-flash/lag glitch
-     *  (window animation type conflict). Leaving content transitions unset
-     *  keeps only the shared-element move, which is the well-supported path:
-     *  the nav bar bounds-animates continuously, content just cuts underneath. */
-    private void setupNavTransitions() {
-        getWindow().setExitTransition(null);
-        getWindow().setEnterTransition(null);
-        getWindow().setReenterTransition(null);
-        getWindow().setReturnTransition(null);
-    }
-
-    private void startNavTransition(Intent intent) {
-        if (bottomNavCard != null) {
-            ActivityOptions options = ActivityOptions.makeSceneTransitionAnimation(
-                    this, bottomNavCard, "bottom_nav");
-            startActivity(intent, options.toBundle());
-        } else {
-            startActivity(intent);
-        }
-        // Finishing immediately tears this window down before the shared-element
-        // crossfade finishes compositing with the destination window, which is
-        // what caused the black-flash/launcher-peek glitch. Let it finish first.
-        handler.postDelayed(this::finish, NAV_TRANSITION_FINISH_MS);
+    // Simple slide in/out — Home is the leftmost tab, so both Materials and
+    // Profile are always a forward (rightward) move from here.
+    private void startNavTransition(Intent intent, boolean forward) {
+        startActivity(intent);
+        overridePendingTransition(forward ? R.anim.slide_in_right : R.anim.slide_in_left,
+                                   forward ? R.anim.slide_out_left : R.anim.slide_out_right);
+        finish();
     }
 
     private void loadLatestMaterial() {

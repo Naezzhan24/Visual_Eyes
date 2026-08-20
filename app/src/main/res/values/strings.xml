@@ -20,4 +20,7 @@
     <string name="back">Back</string>
     <string name="voice_waiting">Voice: waiting...</string>
 
+    <!-- Intro / splash animation -->
+    <string name="intro_tap_skip">Tap to skip</string>
+
 </resources>

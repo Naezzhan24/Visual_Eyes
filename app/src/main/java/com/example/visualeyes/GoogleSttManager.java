@@ -77,6 +77,7 @@ public class GoogleSttManager {
 
     private android.media.AudioRecord audioRecord;
     private android.media.audiofx.AutomaticGainControl agc;
+    private android.media.audiofx.NoiseSuppressor noiseSuppressor;
     private boolean isRecording = false;
     private final java.util.List<byte[]> audioChunks = new java.util.ArrayList<>();
     private volatile byte[] lastPcmData = new byte[0];
@@ -299,6 +300,20 @@ public class GoogleSttManager {
 
     private void attachAudioEffects(int sessionId) {
         try {
+            if (android.media.audiofx.NoiseSuppressor.isAvailable()) {
+                noiseSuppressor = android.media.audiofx.NoiseSuppressor.create(sessionId);
+                if (noiseSuppressor != null) {
+                    noiseSuppressor.setEnabled(true);
+                    Log.d(TAG, "NoiseSuppressor enabled.");
+                }
+            } else {
+                Log.d(TAG, "NoiseSuppressor not available on this device.");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "NoiseSuppressor init failed: " + e.getMessage());
+        }
+
+        try {
             if (android.media.audiofx.AutomaticGainControl.isAvailable()) {
                 agc = android.media.audiofx.AutomaticGainControl.create(sessionId);
                 if (agc != null) {
@@ -314,6 +329,7 @@ public class GoogleSttManager {
     }
 
     private void releaseAudioEffects() {
+        try { if (noiseSuppressor != null) { noiseSuppressor.release(); noiseSuppressor = null; } } catch (Exception ignored) {}
         try { if (agc != null) { agc.release(); agc = null; } } catch (Exception ignored) {}
     }
 

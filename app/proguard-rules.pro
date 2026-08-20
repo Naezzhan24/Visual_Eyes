@@ -43,6 +43,16 @@
 -dontwarn java.awt.**
 -dontwarn com.graphbuilder.**
 
+# ── commons-compress optional codecs (zstd/brotli/xz/pack200/OSGi) — pulled
+# in by the compressor factory classes but never actually exercised since we
+# only use commons-compress for POI's DOCX/zip handling.
+-dontwarn aQute.bnd.annotation.spi.**
+-dontwarn com.github.luben.zstd.**
+-dontwarn org.brotli.dec.**
+-dontwarn org.objectweb.asm.**
+-dontwarn org.osgi.framework.**
+-dontwarn org.tukaani.xz.**
+
 # ── JNA / Vosk: native bindings resolved via reflection ────────────────────
 -keep class com.sun.jna.** { *; }
 -keepclassmembers class * extends com.sun.jna.Structure { public *; }

@@ -1,20 +1,14 @@
 package com.example.visualeyes;
 
 import android.Manifest;
-import android.app.ActivityOptions;
-import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
-import android.graphics.Bitmap;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
-import android.provider.MediaStore;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -31,12 +25,9 @@ import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.SwitchCompat;
 import androidx.cardview.widget.CardView;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
@@ -44,11 +35,9 @@ import com.android.volley.DefaultRetryPolicy;
 import com.android.volley.Request;
 import com.android.volley.toolbox.JsonArrayRequest;
 import com.android.volley.toolbox.Volley;
-import com.bumptech.glide.Glide;
 
 import org.json.JSONObject;
 
-import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -62,23 +51,19 @@ public class ProfileActivity extends AppCompatActivity {
     private static final String KEY_STT_ENABLED          = "stt_enabled";
     private static final String KEY_IMPAIRMENT_LEVEL     = "impairmentLevel";
     private static final String KEY_RECOMMENDED_TEXT_SIZE= "recommendedTextSize";
-    private static final int    CAMERA_PERMISSION_CODE   = 101;
+    private static final String KEY_YEAR_LEVEL           = "yearLevel";
     private static final long   LISTEN_DELAY_NORMAL      = 500L;
     private static final long   LISTEN_DELAY_AFTER_TTS   = 400L;
     private static final long   COMMAND_COOLDOWN         = 900L;
 
-    private static final String BASE_URL          = "http://192.168.1.100/visualed/";
-    private static final String UPLOAD_PROFILE_URL= BASE_URL + "upload_profile_image.php";
-
-    private ImageView imgProfile, btnEditProfile;
     private ImageView iconHome, iconMaterials, iconProfile;
-    private TextView txtStudentName, txtCourse, txtEmail, txtStudentNumber, txtImpairmentLevel;
+    private TextView txtStudentName, txtCourse, txtEmail, txtStudentNumber, txtAge, txtYearLevel, txtImpairmentLevel;
     private TextView txtVoiceStatus, txtRecognizedText, txtVoiceHint;
     private TextView textHome, textMaterials, textProfile, txtStudentInfoLabel;
     private LinearLayout optionTts, optionStt, optionHelp, navHome, navMaterials, navProfile;
     private SwitchCompat switchTts, switchStt;
     private Button btnRetakeAssessment, btnLogout;
-    private CardView cardProfileInfo, cardImpairmentLevel, cardVoiceStatus, cardOptions, bottomNavCard;
+    private CardView cardProfileInfo, cardImpairmentLevel, cardVoiceStatus, cardOptions;
     private SwipeRefreshLayout swipeRefreshProfile;
     private View topBarProfile;
     private ImageView btnMenu;
@@ -106,7 +91,6 @@ public class ProfileActivity extends AppCompatActivity {
     private boolean commandHandled    = false;
     private String  lastHandledCommand    = "";
     private long    lastHandledCommandTime= 0L;
-    private String  currentStudentId      = "";
     private String  lastSpokenInstruction  = "";
 
     private int voiceSessionId = 0;
@@ -181,39 +165,9 @@ public class ProfileActivity extends AppCompatActivity {
         });
     }
 
-    private final ActivityResultLauncher<Intent> galleryLauncher =
-            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
-                try {
-                    if (result.getResultCode() == RESULT_OK && result.getData() != null) {
-                        Uri imageUri = result.getData().getData();
-                        if (imageUri != null) { imgProfile.setImageURI(imageUri); uploadImageFromUri(imageUri); }
-                        else Toast.makeText(this, "No image selected", Toast.LENGTH_SHORT).show();
-                    }
-                } catch (Exception e) {
-                    Toast.makeText(this, "Gallery failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                }
-            });
-
-    private final ActivityResultLauncher<Intent> cameraLauncher =
-            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
-                try {
-                    if (result.getResultCode() == RESULT_OK && result.getData() != null) {
-                        Bundle extras = result.getData().getExtras();
-                        if (extras != null && extras.get("data") != null) {
-                            Bitmap bitmap = (Bitmap) extras.get("data");
-                            imgProfile.setImageBitmap(bitmap);
-                            uploadImageFromBitmap(bitmap);
-                        } else Toast.makeText(this, "No image captured", Toast.LENGTH_SHORT).show();
-                    }
-                } catch (Exception e) {
-                    Toast.makeText(this, "Camera failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                }
-            });
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setupNavTransitions();
         setContentView(R.layout.activity_profile);
 
         authManager = new AuthManager(this);
@@ -270,12 +224,12 @@ public class ProfileActivity extends AppCompatActivity {
         drawerMaterialsContainer = findViewById(R.id.drawerMaterialsContainer);
         btnCloseDrawer           = findViewById(R.id.btnCloseDrawer);
         txtStudentInfoLabel= findViewById(R.id.txtStudentInfoLabel);
-        imgProfile         = findViewById(R.id.imgProfile);
-        btnEditProfile     = findViewById(R.id.btnEditProfile);
         txtStudentName     = findViewById(R.id.txtStudentName);
         txtCourse          = findViewById(R.id.txtCourse);
         txtEmail           = findViewById(R.id.txtEmail);
         txtStudentNumber   = findViewById(R.id.txtStudentNumber);
+        txtAge             = findViewById(R.id.txtAge);
+        txtYearLevel       = findViewById(R.id.txtYearLevel);
         txtImpairmentLevel = findViewById(R.id.txtImpairmentLevel);
         txtVoiceStatus     = findViewById(R.id.txtVoiceStatus);
         txtRecognizedText  = findViewById(R.id.txtRecognizedText);
@@ -298,7 +252,6 @@ public class ProfileActivity extends AppCompatActivity {
         cardImpairmentLevel= findViewById(R.id.cardImpairmentLevel);
         cardVoiceStatus    = findViewById(R.id.cardVoiceStatus);
         cardOptions        = findViewById(R.id.cardOptions);
-        bottomNavCard      = findViewById(R.id.bottomNavCard);
         swipeRefreshProfile= findViewById(R.id.swipeRefreshProfile);
         btnRetakeAssessment= findViewById(R.id.btnRetakeAssessment);
         btnLogout          = findViewById(R.id.btnLogout);
@@ -511,6 +464,8 @@ public class ProfileActivity extends AppCompatActivity {
         String name       = txtStudentName    != null ? txtStudentName.getText().toString()     : "Unknown";
         String email      = txtEmail          != null ? txtEmail.getText().toString()            : "Unknown";
         String schoolNum  = txtStudentNumber  != null ? txtStudentNumber.getText().toString()    : "Unknown";
+        String age        = txtAge            != null ? txtAge.getText().toString()              : "Unknown";
+        String yearLevel  = txtYearLevel       != null ? txtYearLevel.getText().toString()        : "Unknown";
         String textSize   = txtCourse         != null ? txtCourse.getText().toString()           : "Unknown";
         String impairment = txtImpairmentLevel!= null ? txtImpairmentLevel.getText().toString()  : "Unknown";
 
@@ -518,6 +473,8 @@ public class ProfileActivity extends AppCompatActivity {
                 + "Name: " + name + ". "
                 + email + ". "
                 + schoolNum + ". "
+                + age + ". "
+                + yearLevel + ". "
                 + textSize + ". "
                 + "Visual impairment level: " + impairment + ".";
 
@@ -715,9 +672,6 @@ public class ProfileActivity extends AppCompatActivity {
     }
 
     private void setupClickActions() {
-        btnEditProfile.setOnClickListener(v -> { bounceView(btnEditProfile); showImagePickerDialog(); });
-        imgProfile.setOnClickListener(v    -> { bounceView(imgProfile);      showImagePickerDialog(); });
-
         if (btnRetakeAssessment != null)
             btnRetakeAssessment.setOnClickListener(v -> { bounceView(btnRetakeAssessment); openRetakeAssessment(); });
 
@@ -745,41 +699,20 @@ public class ProfileActivity extends AppCompatActivity {
     }
 
     private void openHome() {
-        startNavTransition(new Intent(this, HomeActivity.class));
+        startNavTransition(new Intent(this, HomeActivity.class), false);
     }
 
     private void openMaterials() {
-        startNavTransition(new Intent(this, MaterialsActivity.class));
+        startNavTransition(new Intent(this, MaterialsActivity.class), false);
     }
 
-    // Default shared-element transition duration is ~300ms; finish() has to
-    // outlast that or the outgoing window gets torn down mid-crossfade.
-    private static final long NAV_TRANSITION_FINISH_MS = 350L;
-
-    /** No explicit content transition — the extra Fade() layered on top of the
-     *  shared-element move was the likely cause of the black-flash/lag glitch
-     *  (window animation type conflict). Leaving content transitions unset
-     *  keeps only the shared-element move, which is the well-supported path:
-     *  the nav bar bounds-animates continuously, content just cuts underneath. */
-    private void setupNavTransitions() {
-        getWindow().setExitTransition(null);
-        getWindow().setEnterTransition(null);
-        getWindow().setReenterTransition(null);
-        getWindow().setReturnTransition(null);
-    }
-
-    private void startNavTransition(Intent intent) {
-        if (bottomNavCard != null) {
-            ActivityOptions options = ActivityOptions.makeSceneTransitionAnimation(
-                    this, bottomNavCard, "bottom_nav");
-            startActivity(intent, options.toBundle());
-        } else {
-            startActivity(intent);
-        }
-        // Finishing immediately tears this window down before the shared-element
-        // crossfade finishes compositing with the destination window, which is
-        // what caused the black-flash/launcher-peek glitch. Let it finish first.
-        handler.postDelayed(this::finish, NAV_TRANSITION_FINISH_MS);
+    // Simple slide in/out — Profile is the rightmost tab, so both Home and
+    // Materials are always a backward (leftward) move from here.
+    private void startNavTransition(Intent intent, boolean forward) {
+        startActivity(intent);
+        overridePendingTransition(forward ? R.anim.slide_in_right : R.anim.slide_in_left,
+                                   forward ? R.anim.slide_out_left : R.anim.slide_out_right);
+        finish();
     }
 
     private void openRetakeAssessment() {
@@ -835,17 +768,22 @@ public class ProfileActivity extends AppCompatActivity {
         String fullName   = authManager.getFullName();
         String email      = authManager.getEmail();
         String schoolId   = authManager.getSchoolId();
+        String age        = authManager.getAge();
         String impairment = prefs.getString(KEY_IMPAIRMENT_LEVEL,      "Not Available");
         String textSize   = prefs.getString(KEY_RECOMMENDED_TEXT_SIZE,  "Not Available");
+        String yearLevel  = prefs.getString(KEY_YEAR_LEVEL,             "Not Available");
 
         if (fullName == null || fullName.trim().isEmpty()) fullName = "Student Name";
         else fullName = toProperCase(fullName);
         if (email    == null || email.trim().isEmpty())    email    = "No Email";
         if (schoolId == null || schoolId.trim().isEmpty()) schoolId = "No Student Number";
+        if (age      == null || age.trim().isEmpty())      age      = "Not Available";
 
         if (txtStudentName   != null) txtStudentName.setText(fullName);
         if (txtEmail         != null) txtEmail.setText("Email: " + email);
         if (txtStudentNumber != null) txtStudentNumber.setText("Student Number: " + schoolId);
+        if (txtAge           != null) txtAge.setText("Age: " + age);
+        if (txtYearLevel     != null) txtYearLevel.setText("Year Level: " + yearLevel);
         if (txtCourse        != null) txtCourse.setText("Recommended Text Size: " + textSize);
         if (txtImpairmentLevel!= null) txtImpairmentLevel.setText(formatImpairmentLevel(impairment));
         applyFontSize();
@@ -887,30 +825,35 @@ public class ProfileActivity extends AppCompatActivity {
                     try {
                         if (response == null || response.length() == 0) return;
                         JSONObject s = response.getJSONObject(0);
-                        currentStudentId = s.optString("id", "");
 
                         String fn   = s.optString("first_name",  "");
                         String mn   = s.optString("middle_name", "");
                         String ln   = s.optString("last_name",   "");
                         String sid  = s.optString("school_id",   "");
                         String em   = s.optString("email",       "");
+                        String age  = s.optString("age",         "");
+                        String yr   = s.optString("year_level",  "");
                         String imp  = s.optString("impairment_level", "Not Available");
                         int    ts   = s.optInt("recommended_text_size", 0);
                         String tsStr= ts > 0 ? ts + "sp" : "Not Available";
+                        String ageStr = age.trim().isEmpty() ? "Not Available" : age;
+                        String yrStr  = yr.trim().isEmpty()  ? "Not Available" : yr;
                         String name = formatProfessionalName(fn, mn, ln);
 
                         if (txtStudentName   != null) txtStudentName.setText(name);
                         if (txtEmail         != null) txtEmail.setText("Email: " + em);
                         if (txtStudentNumber != null) txtStudentNumber.setText("Student Number: " + sid);
+                        if (txtAge           != null) txtAge.setText("Age: " + ageStr);
+                        if (txtYearLevel     != null) txtYearLevel.setText("Year Level: " + yrStr);
                         if (txtCourse        != null) txtCourse.setText("Recommended Text Size: " + tsStr);
                         if (txtImpairmentLevel!=null) txtImpairmentLevel.setText(formatImpairmentLevel(imp));
 
                         prefs.edit()
                                 .putString(KEY_IMPAIRMENT_LEVEL,      imp)
                                 .putString(KEY_RECOMMENDED_TEXT_SIZE, tsStr)
+                                .putString(KEY_YEAR_LEVEL,            yrStr)
                                 .apply();
 
-                        if (imgProfile != null) imgProfile.setImageResource(R.drawable.ic_default_profile);
                         applyFontSize();
                         updateVoiceStatus("Profile loaded.");
                     } catch (Exception e) {
@@ -947,83 +890,6 @@ public class ProfileActivity extends AppCompatActivity {
         Volley.newRequestQueue(this).add(req);
     }
 
-    private void showImagePickerDialog() {
-        new AlertDialog.Builder(this)
-                .setTitle("Select Profile Picture")
-                .setItems(new String[]{"Take Photo", "Choose from Gallery"}, (d, which) -> {
-                    if (which == 0) openCamera(); else openGallery();
-                }).show();
-    }
-
-    private void openCamera() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_CODE);
-            return;
-        }
-        Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-        if (intent.resolveActivity(getPackageManager()) != null) cameraLauncher.launch(intent);
-        else Toast.makeText(this, "No camera app available", Toast.LENGTH_SHORT).show();
-    }
-
-    private void openGallery() {
-        Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
-        intent.setType("image/*");
-        galleryLauncher.launch(intent);
-    }
-
-    private void uploadImageFromUri(Uri imageUri) {
-        if (currentStudentId.isEmpty()) { Toast.makeText(this, "Student ID not loaded.", Toast.LENGTH_SHORT).show(); return; }
-        try { uploadBitmap(MediaStore.Images.Media.getBitmap(getContentResolver(), imageUri)); }
-        catch (Exception e) { Toast.makeText(this, "Image read failed.", Toast.LENGTH_SHORT).show(); }
-    }
-
-    private void uploadImageFromBitmap(Bitmap bitmap) {
-        if (currentStudentId.isEmpty()) { Toast.makeText(this, "Student ID not loaded.", Toast.LENGTH_SHORT).show(); return; }
-        uploadBitmap(bitmap);
-    }
-
-    private void uploadBitmap(Bitmap bitmap) {
-        if (bitmap == null) { Toast.makeText(this, "Invalid image.", Toast.LENGTH_SHORT).show(); return; }
-        Toast.makeText(this, "Uploading profile image...", Toast.LENGTH_SHORT).show();
-
-        VolleyMultipartRequest req = new VolleyMultipartRequest(
-                Request.Method.POST, UPLOAD_PROFILE_URL,
-                response -> {
-                    try {
-                        JSONObject obj     = new JSONObject(new String(response.data));
-                        boolean    success = obj.getBoolean("success");
-                        String     message = obj.getString("message");
-                        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
-                        if (success) loadProfileImage(obj.optString("image_path", ""));
-                    } catch (Exception e) { Toast.makeText(this, "Upload parse error.", Toast.LENGTH_SHORT).show(); }
-                },
-                error -> Toast.makeText(this, "Upload failed.", Toast.LENGTH_LONG).show()
-        ) {
-            @Override protected Map<String, String>   getParams()   { Map<String, String> p = new HashMap<>(); p.put("student_id", currentStudentId); return p; }
-            @Override protected Map<String, DataPart> getByteData() {
-                Map<String, DataPart> p = new HashMap<>();
-                ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 85, bos);
-                p.put("profile_image", new DataPart(System.currentTimeMillis() + ".jpg", bos.toByteArray(), "image/jpeg"));
-                return p;
-            }
-        };
-        req.setRetryPolicy(new DefaultRetryPolicy(20000, 1, 1.0f));
-        Volley.newRequestQueue(this).add(req);
-    }
-
-    private void loadProfileImage(String imagePath) {
-        if (imagePath == null || imagePath.trim().isEmpty()) { imgProfile.setImageResource(R.drawable.ic_default_profile); return; }
-        String url = imagePath.startsWith("http") ? imagePath
-                : imagePath.startsWith("profiles/") ? ApiConfig.SUPABASE_URL + "/storage/v1/object/public/" + imagePath
-                : BASE_URL + imagePath;
-        Glide.with(this).load(url)
-                .placeholder(R.drawable.ic_default_profile)
-                .error(R.drawable.ic_default_profile)
-                .into(imgProfile);
-    }
 
     private void applyFontSize() {
         float b = FontSizeManager.getFontSize(this);
@@ -1033,6 +899,8 @@ public class ProfileActivity extends AppCompatActivity {
         if (txtCourse           != null) txtCourse.setTextSize(16f);
         if (txtEmail            != null) txtEmail.setTextSize(16f);
         if (txtStudentNumber    != null) txtStudentNumber.setTextSize(16f);
+        if (txtAge              != null) txtAge.setTextSize(16f);
+        if (txtYearLevel        != null) txtYearLevel.setTextSize(16f);
         if (txtImpairmentLevel  != null) txtImpairmentLevel.setTextSize(b + 8);
         if (btnRetakeAssessment != null) btnRetakeAssessment.setTextSize(16f);
         if (btnLogout           != null) btnLogout.setTextSize(b - 2);
@@ -1093,7 +961,7 @@ public class ProfileActivity extends AppCompatActivity {
     private void setupPressAnimations() {
         for (View v : new View[]{btnMenu, optionTts, optionStt, optionHelp, cardProfileInfo, cardImpairmentLevel,
                 cardVoiceStatus, cardOptions,
-                btnRetakeAssessment, btnLogout, imgProfile, btnEditProfile}) {
+                btnRetakeAssessment, btnLogout}) {
             if (v == null) continue;
             v.setOnTouchListener((view, event) -> {
                 switch (event.getAction()) {
@@ -1117,8 +985,6 @@ public class ProfileActivity extends AppCompatActivity {
         animateCard(cardVoiceStatus,     320, -40f);
         animateCard(cardOptions,         420,  40f);
         if (btnLogout     != null) { btnLogout.setAlpha(0f);     btnLogout.setTranslationY(30f);     btnLogout.animate().alpha(1f).translationY(0f).setStartDelay(500).setDuration(280).setInterpolator(new AccelerateDecelerateInterpolator()).start(); }
-
-        if (imgProfile    != null) { imgProfile.setScaleX(0.7f); imgProfile.setScaleY(0.7f); imgProfile.setAlpha(0f); imgProfile.animate().scaleX(1f).scaleY(1f).alpha(1f).setStartDelay(250).setDuration(350).start(); }
     }
 
     private void animateCard(View v, long delay, float fromX) {
@@ -1228,11 +1094,5 @@ public class ProfileActivity extends AppCompatActivity {
         if (googleStt != null) googleStt.destroy();
         if (googleTts != null) googleTts.destroy();
         super.onDestroy();
-    }
-
-    @Override public void onRequestPermissionsResult(int code, @NonNull String[] perms, @NonNull int[] results) {
-        super.onRequestPermissionsResult(code, perms, results);
-        if (code == CAMERA_PERMISSION_CODE && results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) openCamera();
-        else Toast.makeText(this, "Camera permission denied.", Toast.LENGTH_SHORT).show();
     }
 }
