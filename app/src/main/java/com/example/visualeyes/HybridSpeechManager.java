@@ -62,6 +62,9 @@ public class HybridSpeechManager {
     private volatile boolean isFinishing = false;
     private final Runnable softStopRunnable = this::finishTranscription;
 
+    private android.media.audiofx.NoiseSuppressor      voskNoiseSuppressor;
+    private android.media.audiofx.AutomaticGainControl voskAgc;
+
     private final boolean respectVoicePreferences;
 
     public HybridSpeechManager(Context context) {
@@ -166,6 +169,7 @@ public class HybridSpeechManager {
             recognizer.setWords(true);
 
             voskService = new SpeechService(recognizer, SAMPLE_RATE);
+            attachVoskAudioEffects(voskService);
             voskService.startListening(new RecognitionListener() {
 
                 @Override
@@ -271,6 +275,40 @@ public class HybridSpeechManager {
         });
     }
 
+    /**
+     * Vosk's SpeechService opens its own AudioRecord internally and doesn't
+     * expose it publicly, so the session id has to be pulled via reflection.
+     * This is a best-effort add-on, not required for STT to work — if the
+     * library's internal field name ever changes, this just silently skips
+     * noise reduction for this offline-only live-capture path instead of
+     * breaking recognition.
+     */
+    private void attachVoskAudioEffects(SpeechService service) {
+        try {
+            java.lang.reflect.Field recorderField = SpeechService.class.getDeclaredField("recorder");
+            recorderField.setAccessible(true);
+            android.media.AudioRecord recorder = (android.media.AudioRecord) recorderField.get(service);
+            if (recorder == null) return;
+            int sessionId = recorder.getAudioSessionId();
+
+            if (android.media.audiofx.NoiseSuppressor.isAvailable()) {
+                voskNoiseSuppressor = android.media.audiofx.NoiseSuppressor.create(sessionId);
+                if (voskNoiseSuppressor != null) voskNoiseSuppressor.setEnabled(true);
+            }
+            if (android.media.audiofx.AutomaticGainControl.isAvailable()) {
+                voskAgc = android.media.audiofx.AutomaticGainControl.create(sessionId);
+                if (voskAgc != null) voskAgc.setEnabled(true);
+            }
+        } catch (Exception e) {
+            Log.d(TAG, "Vosk audio effects unavailable: " + e.getMessage());
+        }
+    }
+
+    private void releaseVoskAudioEffects() {
+        try { if (voskNoiseSuppressor != null) { voskNoiseSuppressor.release(); voskNoiseSuppressor = null; } } catch (Exception ignored) {}
+        try { if (voskAgc != null) { voskAgc.release(); voskAgc = null; } } catch (Exception ignored) {}
+    }
+
     private void finishTranscription() {
         if (isFinishing) return;
         isFinishing = true;
@@ -280,6 +318,7 @@ public class HybridSpeechManager {
             try { voskService.stop(); } catch (Exception ignored) {}
             voskService = null;
         }
+        releaseVoskAudioEffects();
 
         String result = normalizeSpoken(bestVoskResult);
         mainHandler.post(() -> { if (callback != null) callback.onFinalResult(result); });
@@ -292,6 +331,7 @@ public class HybridSpeechManager {
             try { voskService.stop(); } catch (Exception ignored) {}
             voskService = null;
         }
+        releaseVoskAudioEffects();
         callback = null;
     }
 

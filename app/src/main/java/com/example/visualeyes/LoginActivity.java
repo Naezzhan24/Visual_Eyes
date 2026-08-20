@@ -1010,9 +1010,16 @@ public class LoginActivity extends AppCompatActivity {
             String studentEmail = student.optString("email", email);
             String impairment   = student.optString("impairment_level", "");
             String textSize     = student.optString("recommended_text_size", "");
+            String yearLevel    = student.optString("year_level", "");
 
             authManager.saveLoggedInStudent(studentId, firstName, middleName, lastName,
                     age, schoolId, studentEmail, password);
+
+            if (!yearLevel.trim().isEmpty()) {
+                getSharedPreferences("VisualEyesPrefs", MODE_PRIVATE).edit()
+                        .putString("yearLevel", yearLevel)
+                        .apply();
+            }
 
             boolean hasAssessment = isValidAssessment(impairment) && isValidAssessment(textSize);
 
