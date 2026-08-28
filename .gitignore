@@ -17,3 +17,6 @@
 /keystore.properties
 /keystore/
 local.properties
+
+# Firebase config — contains project-specific API keys, keep local-only
+/app/google-services.json

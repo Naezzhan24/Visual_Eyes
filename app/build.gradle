@@ -2,6 +2,15 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
+// Firebase Crashlytics needs google-services.json (from the Firebase console)
+// to initialize at runtime. Both plugins are gated on its presence so cloning
+// this repo without that file still builds — just without crash reporting.
+def googleServicesFile = file('google-services.json')
+if (googleServicesFile.exists()) {
+    apply plugin: 'com.google.gms.google-services'
+    apply plugin: 'com.google.firebase.crashlytics'
+}
+
 // Release signing credentials live in keystore.properties (gitignored, local-only)
 // so the keystore password never ends up committed. Falls back to no signing
 // config if the file is missing — debug builds are unaffected either way.
@@ -98,6 +107,12 @@ dependencies {
 
     // Networking
     implementation 'com.android.volley:volley:1.2.1'
+
+    // Crash reporting — only reports once google-services.json is added
+    // (see the conditional plugin block above); harmless no-op without it.
+    implementation platform('com.google.firebase:firebase-bom:34.18.0')
+    implementation 'com.google.firebase:firebase-crashlytics'
+    implementation 'com.google.firebase:firebase-analytics'
 
     // ── Hybrid Speech: Vosk + Whisper ─────────────────────────────────────────
 

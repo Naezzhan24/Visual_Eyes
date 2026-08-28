@@ -1,3 +1,7 @@
 plugins {
     alias(libs.plugins.android.application) apply false
+    // Applied per-module (see app/build.gradle) only once google-services.json
+    // exists, so a fresh checkout without Firebase configured still builds.
+    id 'com.google.gms.google-services' version '4.5.0' apply false
+    id 'com.google.firebase.crashlytics' version '3.0.3' apply false
 }
