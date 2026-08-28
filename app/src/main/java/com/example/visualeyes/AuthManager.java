@@ -7,6 +7,8 @@ import android.util.Log;
 import androidx.security.crypto.EncryptedSharedPreferences;
 import androidx.security.crypto.MasterKey;
 
+import com.google.firebase.crashlytics.FirebaseCrashlytics;
+
 import java.io.IOException;
 import java.security.GeneralSecurityException;
 
@@ -27,7 +29,11 @@ public class AuthManager {
     private static final String KEY_AGE = "age";
     private static final String KEY_SCHOOL_ID = "school_id";
     private static final String KEY_EMAIL = "email";
-    private static final String KEY_PASSWORD = "password";
+    // Replaces KEY_PASSWORD — the raw password used to be stored here and
+    // resent on nearly every authenticated call. Now the password only ever
+    // lives as a local variable during the login request itself; this holds
+    // the opaque, server-issued, revocable session token instead.
+    private static final String KEY_SESSION_TOKEN = "session_token";
     private static final String KEY_IS_LOGGED_IN = "is_logged_in";
     private static final String KEY_PROFILE_COMPLETED = "profile_completed";
 
@@ -61,7 +67,12 @@ public class AuthManager {
             // Falls back to a plain (unencrypted) prefs file so login still
             // works if the device keystore is unavailable, rather than
             // crashing the app on every screen that touches AuthManager.
+            // Recorded as a non-fatal so this is actually visible in the
+            // field — it previously only went to Logcat, which nobody reads
+            // for a device that's already shipped.
             Log.e(TAG, "Failed to create EncryptedSharedPreferences, falling back to plain prefs", e);
+            FirebaseCrashlytics.getInstance().setCustomKey("auth_encrypted_prefs_fallback", true);
+            FirebaseCrashlytics.getInstance().recordException(e);
             return context.getSharedPreferences(PREF_NAME + "Fallback", Context.MODE_PRIVATE);
         }
     }
@@ -73,7 +84,7 @@ public class AuthManager {
                                     String age,
                                     String schoolId,
                                     String email,
-                                    String password) {
+                                    String sessionToken) {
         sharedPreferences.edit()
                 .putString(KEY_STUDENT_ID, studentId)
                 .putString(KEY_FIRST_NAME, firstName)
@@ -82,7 +93,7 @@ public class AuthManager {
                 .putString(KEY_AGE, age)
                 .putString(KEY_SCHOOL_ID, schoolId)
                 .putString(KEY_EMAIL, email)
-                .putString(KEY_PASSWORD, password)
+                .putString(KEY_SESSION_TOKEN, sessionToken)
                 .putBoolean(KEY_IS_LOGGED_IN, true)
                 .putString(KEY_REMEMBERED_EMAIL, email)
                 .apply();
@@ -122,7 +133,7 @@ public class AuthManager {
                 .remove(KEY_AGE)
                 .remove(KEY_SCHOOL_ID)
                 .remove(KEY_EMAIL)
-                .remove(KEY_PASSWORD)
+                .remove(KEY_SESSION_TOKEN)
                 .remove(KEY_PROFILE_COMPLETED)
                 .apply();
     }
@@ -167,8 +178,8 @@ public class AuthManager {
         return sharedPreferences.getString(KEY_EMAIL, "");
     }
 
-    public String getPassword() {
-        return sharedPreferences.getString(KEY_PASSWORD, "");
+    public String getSessionToken() {
+        return sharedPreferences.getString(KEY_SESSION_TOKEN, "");
     }
 
     public String getSchoolId() {

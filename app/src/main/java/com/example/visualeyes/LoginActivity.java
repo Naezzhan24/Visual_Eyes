@@ -37,7 +37,6 @@ import com.android.volley.DefaultRetryPolicy;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.JsonArrayRequest;
-import com.android.volley.toolbox.Volley;
 
 import org.json.JSONObject;
 
@@ -158,7 +157,7 @@ public class LoginActivity extends AppCompatActivity {
         setContentView(R.layout.activity_login);
 
         authManager  = new AuthManager(this);
-        requestQueue = Volley.newRequestQueue(this);
+        requestQueue = VolleySingleton.getInstance(this).getRequestQueue();
 
         bindViews();
         buildSpeechIntent();
@@ -202,13 +201,20 @@ public class LoginActivity extends AppCompatActivity {
             }
         }
 
+        String sessionExpiredMessage = getIntent().getStringExtra("session_expired_message");
+
         boolean finalEmailRemembered = emailRemembered;
         handler.postDelayed(() -> {
-            String tips = finalEmailRemembered
-                    ? "Welcome back to Visual E D. Your email has been filled in for you â " +
-                    "just enter or say your password to continue."
-                    : "Welcome to Visual E D. Quick tip: triple tap anywhere on the screen " +
-                    "to repeat the last instruction, or pinch with two fingers to zoom in.";
+            String tips;
+            if (sessionExpiredMessage != null) {
+                tips = sessionExpiredMessage;
+            } else {
+                tips = finalEmailRemembered
+                        ? "Welcome back to Visual E D. Your email has been filled in for you â " +
+                        "just enter or say your password to continue."
+                        : "Welcome to Visual E D. Quick tip: triple tap anywhere on the screen " +
+                        "to repeat the last instruction, or pinch with two fingers to zoom in.";
+            }
             if (hasAudioPermission()) {
                 lastSpokenInstruction = tips + " You'll hear a short beep each time it's your turn to speak.";
                 say(lastSpokenInstruction, this::promptEntryChoice);
@@ -1011,9 +1017,10 @@ public class LoginActivity extends AppCompatActivity {
             String impairment   = student.optString("impairment_level", "");
             String textSize     = student.optString("recommended_text_size", "");
             String yearLevel    = student.optString("year_level", "");
+            String sessionToken = student.optString("session_token", "");
 
             authManager.saveLoggedInStudent(studentId, firstName, middleName, lastName,
-                    age, schoolId, studentEmail, password);
+                    age, schoolId, studentEmail, sessionToken);
 
             if (!yearLevel.trim().isEmpty()) {
                 getSharedPreferences("VisualEyesPrefs", MODE_PRIVATE).edit()

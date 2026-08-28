@@ -27,9 +27,6 @@ public class GoogleTtsManager {
     }
 
     private static final String TAG = "GoogleTTS";
-    private static final String GOOGLE_TTS_URL =
-            "https://texttospeech.googleapis.com/v1/text:synthesize";
-    private static final String GOOGLE_API_KEY = "AIzaSyCpzyRVmUoT6iqoZFMpkoBakb55GxKsYd4";
 
     private final Context context;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -122,7 +119,9 @@ public class GoogleTtsManager {
                         MediaType.parse("application/json"));
 
                 Request request = new Request.Builder()
-                        .url(GOOGLE_TTS_URL + "?key=" + GOOGLE_API_KEY)
+                        .url(ApiConfig.GOOGLE_TTS_FUNCTION)
+                        .header("apikey", ApiConfig.SUPABASE_KEY)
+                        .header("Authorization", "Bearer " + ApiConfig.SUPABASE_KEY)
                         .post(body)
                         .build();
 

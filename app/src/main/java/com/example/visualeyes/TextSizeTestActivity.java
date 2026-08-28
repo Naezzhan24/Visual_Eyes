@@ -22,7 +22,6 @@ import com.android.volley.DefaultRetryPolicy;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.StringRequest;
-import com.android.volley.toolbox.Volley;
 
 import org.json.JSONObject;
 
@@ -791,20 +790,18 @@ public class TextSizeTestActivity extends AppCompatActivity {
     }
 
     private void saveTestResultToDatabase(String recommendedSize, String impairmentLevel) {
-        AuthManager auth           = new AuthManager(this);
-        String      studentEmail   = auth.getEmail();
-        String      studentPassword = auth.getPassword();
+        AuthManager auth         = new AuthManager(this);
+        String      sessionToken = auth.getSessionToken();
 
-        if (studentEmail == null || studentEmail.trim().isEmpty()) {
-            Toast.makeText(this, "Student email not found. Saved locally only.", Toast.LENGTH_LONG).show();
+        if (sessionToken == null || sessionToken.trim().isEmpty()) {
+            Toast.makeText(this, "Student session not found. Saved locally only.", Toast.LENGTH_LONG).show();
             goToNextScreen();
             return;
         }
 
         JSONObject body = new JSONObject();
         try {
-            body.put("p_email",    studentEmail);
-            body.put("p_password", studentPassword);
+            body.put("p_session_token", sessionToken);
             body.put("p_impairment_level",      impairmentLevel);
             body.put("p_recommended_text_size", parseSize(recommendedSize));
             body.put("p_yes_count", yesCount);
@@ -827,6 +824,10 @@ public class TextSizeTestActivity extends AppCompatActivity {
                     goToNextScreen();
                 },
                 error -> {
+                    if (SessionManager.isSessionExpiredError(error)) {
+                        SessionManager.forceLogoutAndRedirect(this);
+                        return;
+                    }
                     String msg = "Save failed.";
                     if (error.networkResponse != null && error.networkResponse.data != null) {
                         msg = "Save failed: " + new String(error.networkResponse.data, StandardCharsets.UTF_8);
@@ -850,7 +851,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
         };
 
         req.setRetryPolicy(new DefaultRetryPolicy(15000, 1, 1.0f));
-        Volley.newRequestQueue(this).add(req);
+        VolleySingleton.getInstance(this).getRequestQueue().add(req);
     }
 
     private void goToNextScreen() {

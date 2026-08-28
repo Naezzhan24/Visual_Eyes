@@ -16,7 +16,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
 
 import java.net.URLEncoder;
 import java.util.Locale;
@@ -91,7 +90,7 @@ public class MaterialViewerActivity extends AppCompatActivity {
             String encodedId = URLEncoder.encode(materialId, "UTF-8");
             String url = LOCAL_API_BASE_URL + "get_material_content.php?id=" + encodedId;
 
-            RequestQueue queue = Volley.newRequestQueue(this);
+            RequestQueue queue = VolleySingleton.getInstance(this).getRequestQueue();
 
             JsonObjectRequest request = new JsonObjectRequest(
                     Request.Method.GET,

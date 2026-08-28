@@ -20,7 +20,6 @@ import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.TimeoutError;
 import com.android.volley.toolbox.StringRequest;
-import com.android.volley.toolbox.Volley;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -48,7 +47,7 @@ public class ForgotPasswordActivity extends AppCompatActivity {
         setContentView(R.layout.activity_forgot_password);
 
         googleTts    = new GoogleTtsManager(this);
-        requestQueue = Volley.newRequestQueue(this);
+        requestQueue = VolleySingleton.getInstance(this).getRequestQueue();
 
         closeButton     = findViewById(R.id.btnClose);
         resendOtpText   = findViewById(R.id.txtResendOtp);

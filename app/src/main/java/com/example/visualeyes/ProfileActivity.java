@@ -34,7 +34,6 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import com.android.volley.DefaultRetryPolicy;
 import com.android.volley.Request;
 import com.android.volley.toolbox.JsonArrayRequest;
-import com.android.volley.toolbox.Volley;
 
 import org.json.JSONObject;
 
@@ -98,6 +97,7 @@ public class ProfileActivity extends AppCompatActivity {
 
     private boolean micPermissionRequestInFlight = false;
     private boolean lastKnownMicPermission       = false;
+    private boolean isNavPending = false;
 
     private long lastTapTime = 0L;
     private int  tapCount    = 0;
@@ -200,8 +200,8 @@ public class ProfileActivity extends AppCompatActivity {
         setupGestures();
         setupMenuButton();
         materialsDrawer = new MaterialsDrawerController(this, drawerLayout, drawerMaterialsContainer,
-                btnMenu, btnCloseDrawer, this::stopListeningSafely);
-        materialsDrawer.load(authManager.getEmail(), authManager.getPassword());
+                btnMenu, btnCloseDrawer, this::stopListeningSafely, text -> speak(text, false));
+        materialsDrawer.load(authManager.getSessionToken());
         animateProfileEntrance();
         fetchStudentProfileFromServer();
 
@@ -210,7 +210,7 @@ public class ProfileActivity extends AppCompatActivity {
             swipeRefreshProfile.setOnRefreshListener(() -> {
                 loadProfileData();
                 fetchStudentProfileFromServer();
-                materialsDrawer.load(authManager.getEmail(), authManager.getPassword());
+                materialsDrawer.load(authManager.getSessionToken());
             });
         }
 
@@ -697,17 +697,23 @@ public class ProfileActivity extends AppCompatActivity {
 
         if (btnLogout != null)
             btnLogout.setOnClickListener(v -> {
+                if (isNavPending) return;
+                isNavPending = true;
                 bounceView(btnLogout);
                 speak("Logging out.", false);
                 handler.postDelayed(this::logoutUser, 400);
             });
 
         navHome.setOnClickListener(v -> {
+            if (isNavPending) return;
+            isNavPending = true;
             speak("Opening home.", false);
             handler.postDelayed(this::openHome, 300);
         });
 
         navMaterials.setOnClickListener(v -> {
+            if (isNavPending) return;
+            isNavPending = true;
             speak("Opening materials.", false);
             handler.postDelayed(this::openMaterials, 300);
         });
@@ -810,28 +816,22 @@ public class ProfileActivity extends AppCompatActivity {
     }
 
     private void fetchStudentProfileFromServer() {
-        String email    = authManager.getEmail();
-        String password = authManager.getPassword();
+        String sessionToken = authManager.getSessionToken();
 
-        if (email == null || email.trim().isEmpty()) {
+        if (sessionToken == null || sessionToken.trim().isEmpty()) {
             Toast.makeText(this, "No saved student account.", Toast.LENGTH_LONG).show();
             if (swipeRefreshProfile != null) swipeRefreshProfile.setRefreshing(false);
             return;
         }
 
-        // Reuses the student_login RPC (already re-verifies email+password
-        // server-side and returns these same fields) instead of querying the
-        // students table directly. A direct SELECT no longer has any RLS
-        // policy to pass now that the wide-open one was removed as part of
-        // the students-table security fix, so this used to silently return
-        // nothing.
-        String url = ApiConfig.SUPABASE_URL + "/rest/v1/rpc/student_login";
+        // Dedicated, lightweight profile fetch — resolves the student from
+        // their session token server-side instead of re-verifying a password.
+        String url = ApiConfig.SUPABASE_URL + "/rest/v1/rpc/get_student_profile";
 
         JSONObject rpcBody = new JSONObject();
         String bodyStr;
         try {
-            rpcBody.put("p_email", email);
-            rpcBody.put("p_password", password);
+            rpcBody.put("p_session_token", sessionToken);
             bodyStr = rpcBody.toString();
         } catch (Exception e) {
             Toast.makeText(this, "Failed to prepare profile request.", Toast.LENGTH_SHORT).show();
@@ -883,6 +883,10 @@ public class ProfileActivity extends AppCompatActivity {
                     }
                 },
                 error -> {
+                    if (SessionManager.isSessionExpiredError(error)) {
+                        SessionManager.forceLogoutAndRedirect(this);
+                        return;
+                    }
                     Toast.makeText(this, "Failed to load profile.", Toast.LENGTH_LONG).show();
                     if (swipeRefreshProfile != null) swipeRefreshProfile.setRefreshing(false);
                 }
@@ -907,7 +911,7 @@ public class ProfileActivity extends AppCompatActivity {
             }
         };
         req.setRetryPolicy(new DefaultRetryPolicy(15000, 1, 1.0f));
-        Volley.newRequestQueue(this).add(req);
+        VolleySingleton.getInstance(this).getRequestQueue().add(req);
     }
 
 
@@ -1080,6 +1084,7 @@ public class ProfileActivity extends AppCompatActivity {
 
     @Override protected void onResume() {
         super.onResume();
+        isNavPending = false;
         setActiveNav("profile");
         loadSavedOptions();
         applyFontSize();

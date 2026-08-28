@@ -33,7 +33,6 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.JsonArrayRequest;
-import com.android.volley.toolbox.Volley;
 
 import org.json.JSONObject;
 
@@ -80,6 +79,7 @@ public class MaterialsActivity extends AppCompatActivity {
 
     private boolean micPermissionRequestInFlight = false;
     private boolean lastKnownMicPermission       = false;
+    private boolean isNavPending = false;
 
     private long lastTapTime = 0L;
     private int  tapCount    = 0;
@@ -143,7 +143,7 @@ public class MaterialsActivity extends AppCompatActivity {
         setupGestures();
         setupMenuButton();
         materialsDrawer = new MaterialsDrawerController(this, drawerLayout, drawerMaterialsContainer,
-                btnMenu, btnCloseDrawer, this::stopListening);
+                btnMenu, btnCloseDrawer, this::stopListening, text -> speak(text, false));
         animateMaterialsEntrance();
         buildSpeechIntent();
         loadMaterials();
@@ -155,7 +155,7 @@ public class MaterialsActivity extends AppCompatActivity {
                 loadMaterials();
                 if (materialsDrawer != null) {
                     AuthManager auth = new AuthManager(this);
-                    materialsDrawer.load(auth.getEmail(), auth.getPassword());
+                    materialsDrawer.load(auth.getSessionToken());
                 }
             });
         }
@@ -655,10 +655,9 @@ public class MaterialsActivity extends AppCompatActivity {
 
     private void loadMaterials() {
         AuthManager authManager   = new AuthManager(this);
-        String studentEmail       = authManager.getEmail();
-        String studentPassword    = authManager.getPassword();
+        String sessionToken       = authManager.getSessionToken();
 
-        if (studentEmail == null || studentEmail.trim().isEmpty()) {
+        if (sessionToken == null || sessionToken.trim().isEmpty()) {
             if (txtFeaturedTitle != null) txtFeaturedTitle.setText("No learning material yet");
             if (txtWelcome != null) txtWelcome.setText("Please log in again to view your materials.");
             applyFontSize();
@@ -677,8 +676,7 @@ public class MaterialsActivity extends AppCompatActivity {
         JSONObject rpcBody = new JSONObject();
         String bodyStr;
         try {
-            rpcBody.put("p_email", studentEmail);
-            rpcBody.put("p_password", studentPassword);
+            rpcBody.put("p_session_token", sessionToken);
             bodyStr = rpcBody.toString();
         } catch (Exception e) {
             if (txtFeaturedTitle != null) txtFeaturedTitle.setText("Unable to read materials");
@@ -688,7 +686,7 @@ public class MaterialsActivity extends AppCompatActivity {
         }
         final String finalBodyStr = bodyStr;
 
-        RequestQueue queue = Volley.newRequestQueue(this);
+        RequestQueue queue = VolleySingleton.getInstance(this).getRequestQueue();
         JsonArrayRequest req = new JsonArrayRequest(Request.Method.POST, url, null,
                 response -> {
                     materialList.clear();
@@ -725,6 +723,10 @@ public class MaterialsActivity extends AppCompatActivity {
                     }
                 },
                 error -> {
+                    if (SessionManager.isSessionExpiredError(error)) {
+                        SessionManager.forceLogoutAndRedirect(this);
+                        return;
+                    }
                     if (txtFeaturedTitle != null) txtFeaturedTitle.setText("Connection failed");
                     if (txtWelcome != null) txtWelcome.setText("Unable to load learning materials.");
                     updateVoiceStatus("Connection failed.");
@@ -898,6 +900,8 @@ public class MaterialsActivity extends AppCompatActivity {
 
     private void setupBottomNav() {
         if (navHome != null) navHome.setOnClickListener(v -> {
+            if (isNavPending) return;
+            isNavPending = true;
             speak("Opening home.", false);
             handler.postDelayed(this::goHome, 400);
         });
@@ -906,6 +910,8 @@ public class MaterialsActivity extends AppCompatActivity {
             speak("You are currently on the materials screen.", true);
         });
         if (navProfile != null) navProfile.setOnClickListener(v -> {
+            if (isNavPending) return;
+            isNavPending = true;
             speak("Opening profile.", false);
             handler.postDelayed(this::goProfile, 400);
         });
@@ -1041,6 +1047,7 @@ public class MaterialsActivity extends AppCompatActivity {
 
     @Override protected void onResume() {
         super.onResume();
+        isNavPending = false;
         setActiveNav("materials");
         applyFontSize();
         loadMaterials();

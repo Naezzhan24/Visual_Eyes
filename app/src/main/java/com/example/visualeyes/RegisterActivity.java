@@ -40,7 +40,6 @@ import com.android.volley.DefaultRetryPolicy;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.StringRequest;
-import com.android.volley.toolbox.Volley;
 
 import org.json.JSONObject;
 
@@ -168,7 +167,7 @@ public class RegisterActivity extends AppCompatActivity {
         setContentView(R.layout.activity_register);
 
         authManager  = new AuthManager(this);
-        requestQueue = Volley.newRequestQueue(this);
+        requestQueue = VolleySingleton.getInstance(this).getRequestQueue();
         nameNormalizer = new NameNormalizer(this);
 
         lastKnownMicPermission = hasAudioPermission();

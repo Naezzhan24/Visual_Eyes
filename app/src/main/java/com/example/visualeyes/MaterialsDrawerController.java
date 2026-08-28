@@ -23,7 +23,6 @@ import androidx.drawerlayout.widget.DrawerLayout;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.JsonArrayRequest;
-import com.android.volley.toolbox.Volley;
 
 import org.json.JSONObject;
 
@@ -40,6 +39,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 final class MaterialsDrawerController {
 
@@ -56,14 +56,22 @@ final class MaterialsDrawerController {
     private final LinearLayout container;
     private final ArrayList<LearningMaterial> materials = new ArrayList<>();
     private final Runnable beforeOpenMaterial;
+    // Announces load/connection errors through the host activity's own TTS,
+    // not just a Toast — this app's target users may be relying on the
+    // in-app voice UI rather than TalkBack, and would otherwise never hear
+    // that a load failed. Nullable: callers that don't wire one just get
+    // the Toast, as before.
+    private final Consumer<String> onAnnounce;
     private SortMode currentSort;
 
     MaterialsDrawerController(Activity activity, DrawerLayout drawerLayout, LinearLayout container,
-                              ImageView menuIcon, ImageView btnClose, Runnable beforeOpenMaterial) {
+                              ImageView menuIcon, ImageView btnClose, Runnable beforeOpenMaterial,
+                              Consumer<String> onAnnounce) {
         this.activity = activity;
         this.drawerLayout = drawerLayout;
         this.container = container;
         this.beforeOpenMaterial = beforeOpenMaterial;
+        this.onAnnounce = onAnnounce;
 
         SharedPreferences prefs = activity.getSharedPreferences(PREFS_NAME, Activity.MODE_PRIVATE);
         SortMode[] modes = SortMode.values();
@@ -115,12 +123,15 @@ final class MaterialsDrawerController {
 
     void close() { if (drawerLayout != null) drawerLayout.closeDrawer(GravityCompat.START); }
 
-    void load(String email, String password) {
+    private void announce(String text) { if (onAnnounce != null) onAnnounce.accept(text); }
+
+    void load(String sessionToken) {
         if (container == null) return;
-        if (email == null || email.isEmpty()) {
+        if (sessionToken == null || sessionToken.isEmpty()) {
             materials.clear();
             container.removeAllViews();
             container.addView(emptyLabel("Please log in again."));
+            announce("Please log in again.");
             return;
         }
 
@@ -128,16 +139,15 @@ final class MaterialsDrawerController {
         // materials with a client-supplied student_id inner-join filter —
         // that filter could be bypassed or changed by anyone with the anon
         // key, since materials also had its own public SELECT policy with no
-        // class/student restriction at all. The RPC re-verifies email+password
-        // server-side and only returns materials for classes this student is
-        // actually enrolled in.
+        // class/student restriction at all. The RPC resolves the student from
+        // their session token server-side and only returns materials for
+        // classes this student is actually enrolled in.
         String url = ApiConfig.SUPABASE_URL + "/rest/v1/rpc/get_student_materials";
 
         JSONObject rpcBody = new JSONObject();
         String bodyStr;
         try {
-            rpcBody.put("p_email", email);
-            rpcBody.put("p_password", password);
+            rpcBody.put("p_session_token", sessionToken);
             bodyStr = rpcBody.toString();
         } catch (Exception e) {
             container.removeAllViews();
@@ -146,7 +156,7 @@ final class MaterialsDrawerController {
         }
         final String finalBodyStr = bodyStr;
 
-        RequestQueue queue = Volley.newRequestQueue(activity);
+        RequestQueue queue = VolleySingleton.getInstance(activity).getRequestQueue();
         JsonArrayRequest req = new JsonArrayRequest(Request.Method.POST, url, null,
                 response -> {
                     materials.clear();
@@ -171,12 +181,18 @@ final class MaterialsDrawerController {
                         Log.e(TAG, "Failed to parse materials: " + e.getMessage());
                         container.removeAllViews();
                         container.addView(emptyLabel("Unable to load materials."));
+                        announce("Unable to load materials.");
                     }
                 },
                 error -> {
+                    if (SessionManager.isSessionExpiredError(error)) {
+                        SessionManager.forceLogoutAndRedirect(activity);
+                        return;
+                    }
                     Log.e(TAG, "Failed to load materials: " + error.getMessage());
                     container.removeAllViews();
                     container.addView(emptyLabel("Connection failed."));
+                    announce("Connection failed. Unable to load your materials.");
                 }
         ) {
             @Override
@@ -353,6 +369,10 @@ final class MaterialsDrawerController {
         row.setPadding(dp(14), dp(12), dp(14), dp(12));
         row.setClickable(true);
         row.setFocusable(true);
+        // Combined into one contentDescription on the row so TalkBack reads a
+        // single coherent label instead of drilling into dot/title/status as
+        // separate nodes.
+        row.setContentDescription(material.getTitle() + ", " + (opened ? "opened" : "new material") + ". Double tap to open.");
 
         GradientDrawable cardShape = new GradientDrawable();
         cardShape.setShape(GradientDrawable.RECTANGLE);
@@ -368,6 +388,7 @@ final class MaterialsDrawerController {
         View dot = new View(activity);
         dot.setLayoutParams(new LinearLayout.LayoutParams(dp(10), dp(10)));
         dot.setBackground(dotShape);
+        dot.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
 
         LinearLayout.LayoutParams textLp = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
@@ -380,12 +401,14 @@ final class MaterialsDrawerController {
         title.setTextColor(0xFF2F2A2C);
         title.setMaxLines(2);
         title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
 
         TextView status = new TextView(activity);
         status.setText(opened ? "Opened" : "New");
         status.setTextSize(11f);
         status.setTextColor(opened ? 0xFF9E9E9E : 0xFF8C4356);
         status.setTypeface(null, opened ? Typeface.NORMAL : Typeface.BOLD);
+        status.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
 
         LinearLayout textCol = new LinearLayout(activity);
         textCol.setOrientation(LinearLayout.VERTICAL);

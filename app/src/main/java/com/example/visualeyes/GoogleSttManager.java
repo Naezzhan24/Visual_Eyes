@@ -26,9 +26,6 @@ public class GoogleSttManager {
     }
 
     private static final String TAG = "GoogleSTT";
-    private static final String GOOGLE_STT_URL =
-            "https://speech.googleapis.com/v1/speech:recognize";
-    private static final String GOOGLE_API_KEY = "AIzaSyCpzyRVmUoT6iqoZFMpkoBakb55GxKsYd4";
 
     private static final int SAMPLE_RATE = 16000;
 
@@ -491,7 +488,9 @@ public class GoogleSttManager {
                     MediaType.parse("application/json"));
 
             Request request = new Request.Builder()
-                    .url(GOOGLE_STT_URL + "?key=" + GOOGLE_API_KEY)
+                    .url(ApiConfig.GOOGLE_STT_FUNCTION)
+                    .header("apikey", ApiConfig.SUPABASE_KEY)
+                    .header("Authorization", "Bearer " + ApiConfig.SUPABASE_KEY)
                     .post(body)
                     .build();
 

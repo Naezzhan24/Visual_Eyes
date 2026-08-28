@@ -4,7 +4,6 @@ import android.content.Context;
 
 import com.android.volley.Request;
 import com.android.volley.toolbox.StringRequest;
-import com.android.volley.toolbox.Volley;
 
 import org.json.JSONObject;
 
@@ -90,7 +89,7 @@ final class SignedUrlHelper {
             }
         };
 
-        Volley.newRequestQueue(context).add(req);
+        VolleySingleton.getInstance(context).getRequestQueue().add(req);
     }
 
     /**

@@ -28,7 +28,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.StringRequest;
-import com.android.volley.toolbox.Volley;
 
 import org.json.JSONObject;
 
@@ -59,7 +58,7 @@ public class FeedbackActivity extends AppCompatActivity {
 
     private String materialId = "";
     private String studentEmail = "";
-    private String studentPassword = "";
+    private String sessionToken = "";
     private EditText activeVoiceField;
 
     private GoogleTtsManager    googleTts;
@@ -109,7 +108,7 @@ public class FeedbackActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_feedback);
 
-        requestQueue = Volley.newRequestQueue(getApplicationContext());
+        requestQueue = VolleySingleton.getInstance(this).getRequestQueue();
         lastKnownMicPermission = hasAudioPermission();
 
         btnBack               = findViewById(R.id.btnBack);
@@ -141,8 +140,8 @@ public class FeedbackActivity extends AppCompatActivity {
         materialId = getIntent().getStringExtra("material_id");
 
         AuthManager authManager = new AuthManager(this);
-        studentEmail    = authManager.getEmail();
-        studentPassword = authManager.getPassword();
+        studentEmail = authManager.getEmail();
+        sessionToken = authManager.getSessionToken();
 
         buildSpeechIntent();
 
@@ -793,8 +792,7 @@ public class FeedbackActivity extends AppCompatActivity {
 
         JSONObject body = new JSONObject();
         try {
-            body.put("p_email",         studentEmail);
-            body.put("p_password",      studentPassword);
+            body.put("p_session_token", sessionToken);
             body.put("p_material_id",   materialIdInt);
             body.put("p_rating",        rating);
             body.put("p_feedback_text", combinedFeedback);
@@ -838,6 +836,10 @@ public class FeedbackActivity extends AppCompatActivity {
                     }, 400);
                 },
                 error -> {
+                    if (SessionManager.isSessionExpiredError(error)) {
+                        SessionManager.forceLogoutAndRedirect(this);
+                        return;
+                    }
                     btnSubmit.setEnabled(true);
                     btnSubmit.setText("Submit Feedback");
                     String message = "Failed to submit feedback.";
