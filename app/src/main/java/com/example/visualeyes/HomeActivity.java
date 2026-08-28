@@ -776,7 +776,12 @@ public class HomeActivity extends AppCompatActivity {
     private void setupWelcome() {
         String name = authManager.getFirstName();
         if (name == null || name.trim().isEmpty()) name = "Student";
-        if (txtWelcome     != null) txtWelcome.setText("Welcome Back, " + name + "! 👋");
+
+        boolean returning = authManager.hasSeenHome();
+        String greeting = returning ? "Welcome Back, " : "Welcome, ";
+        if (!returning) authManager.markHomeSeen();
+
+        if (txtWelcome     != null) txtWelcome.setText(greeting + name + "! 👋");
         if (txtSubtitle    != null) txtSubtitle.setText("Ready to start your learning journey?");
         if (txtAnnouncement!= null) txtAnnouncement.setText("Instructor announcement will appear here.");
     }

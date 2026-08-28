@@ -32,6 +32,11 @@ public class AuthManager {
     private static final String KEY_PROFILE_COMPLETED = "profile_completed";
 
     private static final String KEY_REMEMBERED_EMAIL = "remembered_email";
+    // Survives logout() on purpose: this tracks whether the app has ever been
+    // opened to the Home screen on this install, not whether an account is
+    // currently logged in. Fresh install -> false -> "Welcome"; every open
+    // after that -> true -> "Welcome back", even across different accounts.
+    private static final String KEY_HAS_SEEN_HOME = "has_seen_home";
 
     private final SharedPreferences sharedPreferences;
 
@@ -97,6 +102,14 @@ public class AuthManager {
 
     public boolean isLoggedIn() {
         return sharedPreferences.getBoolean(KEY_IS_LOGGED_IN, false);
+    }
+
+    public boolean hasSeenHome() {
+        return sharedPreferences.getBoolean(KEY_HAS_SEEN_HOME, false);
+    }
+
+    public void markHomeSeen() {
+        sharedPreferences.edit().putBoolean(KEY_HAS_SEEN_HOME, true).apply();
     }
 
     public void logout() {
