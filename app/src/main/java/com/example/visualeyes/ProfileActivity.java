@@ -284,8 +284,6 @@ public class ProfileActivity extends AppCompatActivity {
         speechRecognizer.setRecognitionListener(new RecognitionListener() {
 
             @Override public void onReadyForSpeech(Bundle p) {
-                isListening    = true;
-                commandHandled = false;
                 updateVoiceStatus("Listening...");
             }
 
@@ -601,6 +599,11 @@ public class ProfileActivity extends AppCompatActivity {
             cascadeFromBuiltIn();
             return;
         }
+        // Set synchronously here, not in onReadyForSpeech — that callback
+        // fires asynchronously, leaving a window right after this call where
+        // isListening is still false and a rapid second tap would bypass
+        // the guard above and start a second recognizer on top of the first.
+        isListening = true;
         try {
             commandHandled = false;
             speechRecognizer.cancel();

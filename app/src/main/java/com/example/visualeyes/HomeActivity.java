@@ -274,7 +274,6 @@ public class HomeActivity extends AppCompatActivity {
         speechRecognizer.setRecognitionListener(new RecognitionListener() {
 
             @Override public void onReadyForSpeech(Bundle p) {
-                isListening = true;
                 updateVoiceStatus("Listening...");
             }
 
@@ -395,6 +394,11 @@ public class HomeActivity extends AppCompatActivity {
 
     private void startRawAndroidListening() {
         if (isListening || isTtsSpeaking || speechRecognizer == null) return;
+        // Set synchronously here, not in onReadyForSpeech — that callback
+        // fires asynchronously, leaving a window right after this call where
+        // isListening is still false and a rapid second tap would bypass
+        // this guard and start a second recognizer on top of the first.
+        isListening = true;
         try {
             speechRecognizer.cancel();
             updateVoiceStatus("Listening...");
