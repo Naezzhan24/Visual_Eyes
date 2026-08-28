@@ -78,6 +78,7 @@ public class GoogleSttManager {
     private android.media.AudioRecord audioRecord;
     private android.media.audiofx.AutomaticGainControl agc;
     private android.media.audiofx.NoiseSuppressor noiseSuppressor;
+    private android.media.AudioFocusRequest audioFocusRequest;
     private boolean isRecording = false;
     private final java.util.List<byte[]> audioChunks = new java.util.ArrayList<>();
     private volatile byte[] lastPcmData = new byte[0];
@@ -147,6 +148,16 @@ public class GoogleSttManager {
             return;
         }
 
+        requestRecordingFocus();
+
+        // The mic often isn't immediately usable right after RECORD_AUDIO is
+        // granted, or briefly after another app/component releases it —
+        // MicReadiness retries for up to ~1.25s instead of failing on the
+        // first attempt, before we ever touch AudioRecord.
+        MicReadiness.awaitReady(mainHandler, () -> openAudioRecordAndStart(errorCallback));
+    }
+
+    private void openAudioRecordAndStart(SttCallback errorCallback) {
         try {
             audioRecord = new android.media.AudioRecord(
                     android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION,
@@ -159,6 +170,7 @@ public class GoogleSttManager {
             Log.e(TAG, msg);
             audioRecord = null;
             isRecording = false;
+            abandonRecordingFocus();
             notifyStartError(errorCallback, msg);
             return;
         } catch (Exception e) {
@@ -166,6 +178,7 @@ public class GoogleSttManager {
             Log.e(TAG, msg);
             audioRecord = null;
             isRecording = false;
+            abandonRecordingFocus();
             notifyStartError(errorCallback, msg);
             return;
         }
@@ -178,6 +191,7 @@ public class GoogleSttManager {
             try { audioRecord.release(); } catch (Exception ignored) {}
             audioRecord = null;
             isRecording = false;
+            abandonRecordingFocus();
             notifyStartError(errorCallback, msg);
             return;
         }
@@ -190,6 +204,7 @@ public class GoogleSttManager {
             String msg = "AudioRecord.startRecording() was called but state is still not RECORDING.";
             Log.e(TAG, msg);
             isRecording = false;
+            abandonRecordingFocus();
             notifyStartError(errorCallback, msg);
             return;
         }
@@ -216,6 +231,23 @@ public class GoogleSttManager {
                 }
             }
         });
+    }
+
+    private void requestRecordingFocus() {
+        audioFocusRequest = AudioFocusHelper.requestForRecording(appContext, focusChange -> {
+            // A call or another app taking the mic mid-capture means this
+            // recording can't continue meaningfully — stop cleanly instead
+            // of quietly capturing dead air until the caller's own timeout.
+            if (focusChange == android.media.AudioManager.AUDIOFOCUS_LOSS
+                    || focusChange == android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                cancel();
+            }
+        });
+    }
+
+    private void abandonRecordingFocus() {
+        AudioFocusHelper.abandon(appContext, audioFocusRequest);
+        audioFocusRequest = null;
     }
 
     private void notifyStartError(SttCallback errorCallback, String message) {
@@ -341,6 +373,7 @@ public class GoogleSttManager {
             audioRecord = null;
         }
         releaseAudioEffects();
+        abandonRecordingFocus();
 
         byte[] pcmData;
         synchronized (audioChunks) {
@@ -509,6 +542,7 @@ public class GoogleSttManager {
             audioRecord = null;
         }
         releaseAudioEffects();
+        abandonRecordingFocus();
         synchronized (audioChunks) { audioChunks.clear(); }
     }
 

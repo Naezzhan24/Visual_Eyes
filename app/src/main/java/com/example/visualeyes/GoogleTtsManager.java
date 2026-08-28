@@ -47,6 +47,7 @@ public class GoogleTtsManager {
     private static volatile boolean sSharedAndroidTtsReady = false;
 
     private MediaPlayer mediaPlayer;
+    private android.media.AudioFocusRequest audioFocusRequest;
 
     private int speechGeneration = 0;
     private final boolean respectVoicePreferences;
@@ -173,14 +174,17 @@ public class GoogleTtsManager {
                         mp.release();
                         mediaPlayer = null;
                         tempFile.delete();
+                        abandonPlaybackFocus();
                         if (callback != null) callback.onDone();
                     });
                     mediaPlayer.setOnErrorListener((mp, what, extra) -> {
                         mp.release();
                         mediaPlayer = null;
+                        abandonPlaybackFocus();
                         fallbackToAndroidTts(null, callback, myGeneration);
                         return true;
                     });
+                    requestPlaybackFocus();
                     mediaPlayer.start();
                 } catch (Exception e) {
                     Log.e(TAG, "MediaPlayer error: " + e.getMessage());
@@ -202,17 +206,36 @@ public class GoogleTtsManager {
                 sSharedAndroidTts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                     @Override public void onStart(String id) {}
                     @Override public void onDone(String id) {
+                        abandonPlaybackFocus();
                         if (callback != null) mainHandler.post(callback::onDone);
                     }
                     @Override public void onError(String id) {
+                        abandonPlaybackFocus();
                         if (callback != null) mainHandler.post(callback::onDone);
                     }
                 });
+                requestPlaybackFocus();
                 sSharedAndroidTts.speak(text, TextToSpeech.QUEUE_FLUSH, null, uid);
             } else {
                 if (callback != null) callback.onDone();
             }
         });
+    }
+
+    private void requestPlaybackFocus() {
+        audioFocusRequest = AudioFocusHelper.requestForPlayback(context, focusChange -> {
+            // An incoming call or another app needing the mic/speaker means
+            // narration should stop rather than keep talking over it.
+            if (focusChange == android.media.AudioManager.AUDIOFOCUS_LOSS
+                    || focusChange == android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                stopSpeaking();
+            }
+        });
+    }
+
+    private void abandonPlaybackFocus() {
+        AudioFocusHelper.abandon(context, audioFocusRequest);
+        audioFocusRequest = null;
     }
 
     public void stopSpeaking() {
@@ -224,6 +247,7 @@ public class GoogleTtsManager {
         if (sSharedAndroidTtsReady && sSharedAndroidTts != null) {
             sSharedAndroidTts.stop();
         }
+        abandonPlaybackFocus();
     }
 
     public void destroy() {

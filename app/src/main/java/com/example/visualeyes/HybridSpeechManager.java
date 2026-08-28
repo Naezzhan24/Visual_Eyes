@@ -64,6 +64,7 @@ public class HybridSpeechManager {
 
     private android.media.audiofx.NoiseSuppressor      voskNoiseSuppressor;
     private android.media.audiofx.AutomaticGainControl voskAgc;
+    private android.media.AudioFocusRequest             audioFocusRequest;
 
     private final boolean respectVoicePreferences;
 
@@ -163,6 +164,16 @@ public class HybridSpeechManager {
         isFinishing = false;
         mainHandler.removeCallbacks(softStopRunnable);
 
+        requestRecordingFocus();
+
+        // Same transient-unready-mic window Cloud STT can hit right after a
+        // permission grant or another app releasing the mic — retry via
+        // MicReadiness instead of letting Vosk's SpeechService fail on the
+        // first attempt.
+        MicReadiness.awaitReady(mainHandler, () -> openVoskAndStart(cb));
+    }
+
+    private void openVoskAndStart(HybridSpeechCallback cb) {
         try {
             Recognizer recognizer = new Recognizer(voskModel, SAMPLE_RATE);
             recognizer.setMaxAlternatives(3);
@@ -222,6 +233,7 @@ public class HybridSpeechManager {
             // AudioRecord internally, and a busy/denied mic can surface as other
             // exception types too, not just IOException.
             Log.e(TAG, "Failed to start Vosk: " + e.getMessage());
+            abandonRecordingFocus();
             cb.onError("Failed to start Vosk: " + e.getMessage());
             return;
         }
@@ -309,6 +321,23 @@ public class HybridSpeechManager {
         try { if (voskAgc != null) { voskAgc.release(); voskAgc = null; } } catch (Exception ignored) {}
     }
 
+    private void requestRecordingFocus() {
+        audioFocusRequest = AudioFocusHelper.requestForRecording(context, focusChange -> {
+            // A call or another app taking the mic mid-capture means this
+            // recording can't continue meaningfully — stop cleanly instead
+            // of quietly listening to dead air.
+            if (focusChange == android.media.AudioManager.AUDIOFOCUS_LOSS
+                    || focusChange == android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                cancel();
+            }
+        });
+    }
+
+    private void abandonRecordingFocus() {
+        AudioFocusHelper.abandon(context, audioFocusRequest);
+        audioFocusRequest = null;
+    }
+
     private void finishTranscription() {
         if (isFinishing) return;
         isFinishing = true;
@@ -319,6 +348,7 @@ public class HybridSpeechManager {
             voskService = null;
         }
         releaseVoskAudioEffects();
+        abandonRecordingFocus();
 
         String result = normalizeSpoken(bestVoskResult);
         mainHandler.post(() -> { if (callback != null) callback.onFinalResult(result); });
@@ -332,6 +362,7 @@ public class HybridSpeechManager {
             voskService = null;
         }
         releaseVoskAudioEffects();
+        abandonRecordingFocus();
         callback = null;
     }
 
