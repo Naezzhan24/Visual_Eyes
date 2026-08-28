@@ -93,7 +93,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="Use the three tabs at the bottom of the screen — Home, Materials, and Profile — to move between the main areas of the app. On the Home screen, tap the menu icon at the top left to open the list of materials sent to you."
-                        android:textColor="@color/color_text_on_primary_muted"
+                        android:textColor="@color/color_text_on_primary"
                         android:textSize="14sp" />
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
@@ -126,7 +126,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="On the Home screen, use the text size slider to make the main text bigger or smaller. You can also say &quot;recommended font&quot; for a size based on your assessment, or &quot;default font&quot; to return to the standard size."
-                        android:textColor="@color/color_text_on_primary_muted"
+                        android:textColor="@color/color_text_on_primary"
                         android:textSize="14sp" />
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
@@ -159,7 +159,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="The app starts listening on its own right after it finishes speaking — you don't need to press a button. On the Login and Register screens, wait for the short beep before speaking. On Home, Materials, and Profile, it listens continuously in the background, so you can speak anytime without waiting for a cue. If it doesn't understand you, it will ask you to say it again."
-                        android:textColor="@color/color_text_on_primary_muted"
+                        android:textColor="@color/color_text_on_primary"
                         android:textSize="14sp" />
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
@@ -192,7 +192,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="When you open the Login screen, the app automatically asks whether you're a new or existing user — say &quot;new&quot; to go to registration, or &quot;existing&quot; to log in. If you've logged in on this device before, it already remembers your email and will go straight to asking for your password. If it's your first time, it will guide you through saying your email piece by piece — the part before the at sign, then the provider like gmail or yahoo, then the ending like com or edu — confirming each part before moving on."
-                        android:textColor="@color/color_text_on_primary_muted"
+                        android:textColor="@color/color_text_on_primary"
                         android:textSize="14sp" />
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
@@ -225,7 +225,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="&quot;Help&quot; — hear the list of commands. &quot;Read screen&quot; — hear this page read aloud. &quot;Open latest material&quot; — open your newest lesson. &quot;Materials&quot; — go to the Materials screen. &quot;Profile&quot; — open your profile. &quot;Read announcement&quot; — hear the instructor's message. &quot;Recommended font&quot; / &quot;default font&quot; — change text size. &quot;Repeat&quot; — hear the last message again. &quot;Stop&quot; — stop the app from speaking. &quot;Logout&quot; — sign out."
-                        android:textColor="@color/color_text_on_primary_muted"
+                        android:textColor="@color/color_text_on_primary"
                         android:textSize="14sp" />
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
@@ -258,7 +258,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="&quot;Read screen&quot; — hear this page. &quot;Read titles&quot; — hear every material title. &quot;Open&quot; followed by a title — open that lesson. &quot;Open first / second / third&quot; — open a lesson by its position in the list. &quot;Open featured&quot; — open the featured material. &quot;Home&quot; or &quot;profile&quot; — switch screens. &quot;Repeat&quot; — hear the last message again. &quot;Stop&quot; — stop the app from speaking."
-                        android:textColor="@color/color_text_on_primary_muted"
+                        android:textColor="@color/color_text_on_primary"
                         android:textSize="14sp" />
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
@@ -291,7 +291,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="&quot;Read profile&quot; — hear your details read aloud. &quot;Turn on/off text to speech&quot; — control whether the app talks. &quot;Turn on/off speech to text&quot; — control whether the app listens. &quot;Retake assessment&quot; — take the accessibility test again. &quot;Logout&quot; — sign out. &quot;Home&quot; or &quot;materials&quot; — switch screens."
-                        android:textColor="@color/color_text_on_primary_muted"
+                        android:textColor="@color/color_text_on_primary"
                         android:textSize="14sp" />
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
@@ -324,7 +324,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="On the Register screen, press Voice Registration and the app will ask for each field one at a time. After you answer, it reads back what it heard — letter by letter for names — say &quot;yes&quot; to confirm or &quot;no&quot; to say it again. Say &quot;skip&quot; to leave your middle name blank. You can always switch to typing by tapping any field directly."
-                        android:textColor="@color/color_text_on_primary_muted"
+                        android:textColor="@color/color_text_on_primary"
                         android:textSize="14sp" />
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
@@ -357,7 +357,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="Tap anywhere on the screen three times quickly to repeat the last spoken instruction — useful if you missed it or just walked back to the app. You can also just say &quot;repeat&quot; or &quot;stop&quot; at any time. To zoom in on a screen, pinch with two fingers, the same way you would zoom a photo."
-                        android:textColor="@color/color_text_on_primary_muted"
+                        android:textColor="@color/color_text_on_primary"
                         android:textSize="14sp" />
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
@@ -390,7 +390,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="Open your Profile screen and look under Accessibility Options. There you can switch Text-to-Speech and Speech-to-Text on or off independently, depending on how you prefer to use the app."
-                        android:textColor="@color/color_text_on_primary_muted"
+                        android:textColor="@color/color_text_on_primary"
                         android:textSize="14sp" />
                 </LinearLayout>
             </androidx.cardview.widget.CardView>

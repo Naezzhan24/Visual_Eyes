@@ -370,10 +370,10 @@
 
             <ImageView
                 android:id="@+id/btnSortMaterials"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:layout_marginEnd="4dp"
-                android:padding="9dp"
+                android:padding="13dp"
                 android:background="@drawable/bg_icon_button_ripple"
                 android:clickable="true"
                 android:focusable="true"
@@ -383,9 +383,9 @@
 
             <ImageView
                 android:id="@+id/btnCloseDrawer"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:padding="9dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:padding="13dp"
                 android:background="@drawable/bg_icon_button_ripple"
                 android:clickable="true"
                 android:focusable="true"

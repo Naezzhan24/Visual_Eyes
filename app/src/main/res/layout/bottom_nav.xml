@@ -27,6 +27,7 @@
             <ImageView
                 android:layout_width="24dp"
                 android:layout_height="24dp"
+                android:importantForAccessibility="no"
                 android:src="@android:drawable/ic_menu_view"
                 app:tint="#7A2F42" />
 
@@ -49,6 +50,7 @@
             <ImageView
                 android:layout_width="24dp"
                 android:layout_height="24dp"
+                android:importantForAccessibility="no"
                 android:src="@android:drawable/ic_menu_edit"
                 app:tint="#7A2F42" />
 
@@ -71,6 +73,7 @@
             <ImageView
                 android:layout_width="24dp"
                 android:layout_height="24dp"
+                android:importantForAccessibility="no"
                 android:src="@android:drawable/ic_menu_myplaces"
                 app:tint="#7A2F42" />
 
