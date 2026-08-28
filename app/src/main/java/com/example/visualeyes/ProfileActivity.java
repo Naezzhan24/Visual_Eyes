@@ -60,7 +60,8 @@ public class ProfileActivity extends AppCompatActivity {
     private TextView txtStudentName, txtCourse, txtEmail, txtStudentNumber, txtAge, txtYearLevel, txtImpairmentLevel;
     private TextView txtVoiceStatus, txtRecognizedText, txtVoiceHint;
     private TextView textHome, textMaterials, textProfile, txtStudentInfoLabel;
-    private LinearLayout optionTts, optionStt, optionHelp, navHome, navMaterials, navProfile;
+    private LinearLayout optionTts, optionStt, optionHelp, optionPrivacyPolicy, navHome, navMaterials, navProfile;
+    private TextView txtAppVersion;
     private SwitchCompat switchTts, switchStt;
     private Button btnRetakeAssessment, btnLogout;
     private CardView cardProfileInfo, cardImpairmentLevel, cardVoiceStatus, cardOptions;
@@ -188,6 +189,7 @@ public class ProfileActivity extends AppCompatActivity {
         loadSavedOptions();
         applyFontSize();
         loadProfileData();
+        showAppVersion();
         setActiveNav("profile");
         setupSwitches();
         setupClickActions();
@@ -237,6 +239,8 @@ public class ProfileActivity extends AppCompatActivity {
         optionTts          = findViewById(R.id.optionTts);
         optionStt          = findViewById(R.id.optionStt);
         optionHelp         = findViewById(R.id.optionHelp);
+        optionPrivacyPolicy = findViewById(R.id.optionPrivacyPolicy);
+        txtAppVersion      = findViewById(R.id.txtAppVersion);
         switchTts          = findViewById(R.id.switchTts);
         switchStt          = findViewById(R.id.switchStt);
         navHome            = findViewById(R.id.navHome);
@@ -660,6 +664,19 @@ public class ProfileActivity extends AppCompatActivity {
         optionTts.setOnClickListener(v -> { bounceView(optionTts); switchTts.toggle(); });
         optionStt.setOnClickListener(v -> { bounceView(optionStt); switchStt.toggle(); });
         if (optionHelp != null) optionHelp.setOnClickListener(v -> { bounceView(optionHelp); openHelp(); });
+        if (optionPrivacyPolicy != null) optionPrivacyPolicy.setOnClickListener(v -> { bounceView(optionPrivacyPolicy); openPrivacyPolicy(); });
+    }
+
+    private void openPrivacyPolicy() {
+        startActivity(new Intent(this, PrivacyPolicyActivity.class));
+    }
+
+    private void showAppVersion() {
+        if (txtAppVersion == null) return;
+        try {
+            String versionName = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            txtAppVersion.setText("VisualED v" + versionName);
+        } catch (Exception ignored) {}
     }
 
     private void openHelp() {
@@ -959,7 +976,7 @@ public class ProfileActivity extends AppCompatActivity {
     }
 
     private void setupPressAnimations() {
-        for (View v : new View[]{btnMenu, optionTts, optionStt, optionHelp, cardProfileInfo, cardImpairmentLevel,
+        for (View v : new View[]{btnMenu, optionTts, optionStt, optionHelp, optionPrivacyPolicy, cardProfileInfo, cardImpairmentLevel,
                 cardVoiceStatus, cardOptions,
                 btnRetakeAssessment, btnLogout}) {
             if (v == null) continue;

@@ -129,6 +129,11 @@
             android:name=".HelpActivity"
             android:exported="false" />
 
+        <!-- PRIVACY POLICY -->
+        <activity
+            android:name=".PrivacyPolicyActivity"
+            android:exported="false" />
+
         <!-- FEEDBACK SYSTEM -->
         <activity
             android:name=".FeedbackActivity"

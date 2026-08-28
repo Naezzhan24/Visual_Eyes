@@ -254,12 +254,12 @@
 
                 <ImageView
                     android:id="@+id/togglePassword1"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
                     android:layout_alignParentEnd="true"
                     android:layout_centerVertical="true"
                     android:layout_marginEnd="2dp"
-                    android:padding="11dp"
+                    android:padding="13dp"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:clickable="true"
                     android:focusable="true"
@@ -291,18 +291,62 @@
 
                 <ImageView
                     android:id="@+id/togglePassword2"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
                     android:layout_alignParentEnd="true"
                     android:layout_centerVertical="true"
                     android:layout_marginEnd="2dp"
-                    android:padding="11dp"
+                    android:padding="13dp"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:clickable="true"
                     android:focusable="true"
                     android:contentDescription="Toggle Password"
                     android:src="@drawable/ic_eye_closed" />
             </RelativeLayout>
+
+            <LinearLayout
+                android:id="@+id/optionAgreePrivacy"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:background="@drawable/bg_option_item_light"
+                android:gravity="center_vertical"
+                android:minHeight="58dp"
+                android:orientation="horizontal"
+                android:padding="14dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:importantForAccessibility="no"
+                    android:text="I agree to the Privacy Policy"
+                    android:textColor="#2B0B14"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switchAgreePrivacy"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="false"
+                    android:contentDescription="I agree to the Privacy Policy, toggle"
+                    android:minHeight="48dp"
+                    android:minWidth="48dp"
+                    android:text="" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/txtPrivacyNotice"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="14dp"
+                android:minHeight="40dp"
+                android:gravity="center"
+                android:text="Read the full Privacy Policy"
+                android:textColor="@color/color_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
 
             <!-- BUTTONS -->
             <android.widget.Button

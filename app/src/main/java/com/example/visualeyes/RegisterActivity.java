@@ -25,6 +25,7 @@ import android.view.animation.OvershootInterpolator;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -56,6 +57,9 @@ public class RegisterActivity extends AppCompatActivity {
     private EditText fname, mname, lname, age, yearLevel, schoolid, email, password, confirmPassword;
     private Button continueBtn, voiceRegisterBtn;
     private TextView txtVoiceStatus;
+    private TextView txtPrivacyNotice;
+    private LinearLayout optionAgreePrivacy;
+    private androidx.appcompat.widget.SwitchCompat switchAgreePrivacy;
     private ImageView logoImage;
     private ImageView togglePassword1, togglePassword2;
     private boolean isPassword1Visible = false;
@@ -217,7 +221,8 @@ public class RegisterActivity extends AppCompatActivity {
                 });
             } else {
                 lastSpokenInstruction = "Student registration. You may fill in the fields manually, " +
-                        "or press the Voice Register button to fill each field by voice.";
+                        "or press the Voice Register button to fill each field by voice. " +
+                        "Before continuing, you must agree to the Privacy Policy using the switch above the Continue button.";
                 say(lastSpokenInstruction, null);
             }
         }, 800);
@@ -239,6 +244,18 @@ public class RegisterActivity extends AppCompatActivity {
                 requestMicPermissionWithRationale();
             }
         });
+
+        if (txtPrivacyNotice != null) {
+            txtPrivacyNotice.setOnClickListener(v ->
+                    startActivity(new Intent(RegisterActivity.this, PrivacyPolicyActivity.class)));
+        }
+
+        if (optionAgreePrivacy != null && switchAgreePrivacy != null) {
+            optionAgreePrivacy.setOnClickListener(v -> {
+                animateClick(optionAgreePrivacy);
+                switchAgreePrivacy.toggle();
+            });
+        }
     }
 
     private void bindViews() {
@@ -254,6 +271,9 @@ public class RegisterActivity extends AppCompatActivity {
         password        = findViewById(R.id.password);
         confirmPassword = findViewById(R.id.confirmPassword);
         continueBtn     = findViewById(R.id.continueBtn);
+        txtPrivacyNotice= findViewById(R.id.txtPrivacyNotice);
+        optionAgreePrivacy = findViewById(R.id.optionAgreePrivacy);
+        switchAgreePrivacy = findViewById(R.id.switchAgreePrivacy);
         voiceRegisterBtn= findViewById(R.id.voiceRegisterBtn);
         txtVoiceStatus  = findViewById(R.id.txtVoiceStatus);
         logoImage       = findViewById(R.id.logoImage);
@@ -1276,10 +1296,22 @@ public class RegisterActivity extends AppCompatActivity {
         if (!userPass.equals(confirmPass)) {
             showError(confirmPassword, "Passwords do not match", "Passwords do not match. Please try again."); return;
         }
+        if (switchAgreePrivacy != null && !switchAgreePrivacy.isChecked()) {
+            showConsentError(); return;
+        }
 
         updateVoiceStatus("Submitting registration...");
         registerToSupabase(firstName, middleName, lastName, userAge,
                 userYear, schoolId, userEmail, userPass);
+    }
+
+    private void showConsentError() {
+        if (optionAgreePrivacy == null) return;
+        scrollToField(optionAgreePrivacy);
+        shakeView(optionAgreePrivacy);
+        lastSpokenInstruction = "Please agree to the Privacy Policy before continuing. " +
+                "Tap the switch above the Continue button, or tap Read the full Privacy Policy to listen to it first.";
+        say(lastSpokenInstruction, null);
     }
 
     private void showError(EditText field, String fieldError, String ttsMessage) {
