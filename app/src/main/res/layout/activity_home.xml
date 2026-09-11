@@ -198,41 +198,6 @@
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
 
-                <!-- ANNOUNCEMENT CARD -->
-                <androidx.cardview.widget.CardView
-                    android:id="@+id/cardAnnouncement"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
-                    app:cardBackgroundColor="#33FFFFFF"
-                    app:cardCornerRadius="24dp"
-                    app:cardElevation="0dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:padding="18dp">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Announcement"
-                            android:textColor="#FFFFFF"
-                            android:textSize="16sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:id="@+id/txtAnnouncement"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="10dp"
-                            android:text="Instructor announcement will appear here."
-                            android:textColor="#F2DDE3"
-                            android:textSize="16sp" />
-                    </LinearLayout>
-                </androidx.cardview.widget.CardView>
-
                 <!-- LEARNING MATERIAL CARD -->
                 <androidx.cardview.widget.CardView
                     android:id="@+id/cardLearningMaterial"

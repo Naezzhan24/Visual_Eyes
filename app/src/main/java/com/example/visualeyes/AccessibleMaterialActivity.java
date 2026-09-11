@@ -1502,9 +1502,13 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private void askChunkDecision() {
         if (!isReading) return;
         awaitingChunkDecision = true;
+        String prompt = "Say next, repeat, faster, or slower.";
+        if (lastReadParagraphNumber == 1) {
+            prompt = "Say next, repeat, faster, or slower. You can also say feedback at any time to leave feedback on this material.";
+        }
         if (tts != null) {
             tts.stop();
-            tts.speak("Say next, repeat, faster, or slower.", TextToSpeech.QUEUE_FLUSH, null, "CHUNK_PROMPT");
+            tts.speak(prompt, TextToSpeech.QUEUE_FLUSH, null, "CHUNK_PROMPT");
         }
     }
 
@@ -1744,7 +1748,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         // (title, labels, hint, buttons) keeps its fixed layout size so it doesn't
         // clip or become unreadable at the extremes of the size range.
         if (txtReaderInfo != null)
-            txtReaderInfo.setText("Impairment: " + impairmentLevel + " • Text: " + size + "sp");
+            txtReaderInfo.setText("Impairment: " + impairmentLevel + "\nText size: " + size + "sp");
         if (txtCurrentSize != null)
             txtCurrentSize.setText("Text Size: " + size + "sp");
         if (seekTextSize != null) {

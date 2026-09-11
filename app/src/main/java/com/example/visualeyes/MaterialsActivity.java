@@ -477,6 +477,11 @@ public class MaterialsActivity extends AppCompatActivity {
             return;
         }
 
+        if (cmd.contains("feedback") || cmd.contains("puna") || cmd.contains("komento")) {
+            openFeedbackByVoice();
+            return;
+        }
+
         if (cmd.contains("first")  || cmd.equals("1")) { openByIndex(0); return; }
         if (cmd.contains("second") || cmd.equals("2")) { openByIndex(1); return; }
         if (cmd.contains("third")  || cmd.equals("3")) { openByIndex(2); return; }
@@ -588,6 +593,21 @@ public class MaterialsActivity extends AppCompatActivity {
         LearningMaterial featured = getLastOpened();
         if (featured == null) featured = materialList.get(0);
         confirmOpen(featured);
+    }
+
+    private void openFeedbackByVoice() {
+        LearningMaterial target = getLastOpened();
+        if (target == null) {
+            speak("Please open a material first before leaving feedback.", true);
+            return;
+        }
+        speak("Opening feedback for " + target.getTitle() + ".", false);
+        stopListening();
+        Intent intent = new Intent(this, FeedbackActivity.class);
+        intent.putExtra("material_id", target.getId());
+        intent.putExtra("file_url",    target.getFileUrl());
+        intent.putExtra("title",       target.getTitle());
+        handler.postDelayed(() -> startActivity(intent), 500);
     }
 
     private void openBySpokenTitle(String spoken) {

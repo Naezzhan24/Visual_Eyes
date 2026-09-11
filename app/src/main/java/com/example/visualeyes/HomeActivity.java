@@ -54,7 +54,7 @@ public class HomeActivity extends AppCompatActivity {
     private static final float  MIN_FONT_SIZE = 14f;
     private static final float  MAX_FONT_SIZE = 34f;
 
-    private TextView txtWelcome, txtSubtitle, txtAnnouncement, txtUpdateTitle;
+    private TextView txtWelcome, txtSubtitle, txtUpdateTitle;
     private TextView txtLearningMaterialSubtitle, txtVoiceStatus, txtRecognizedText, txtVoiceHint;
     private TextView txtCurrentFontSize;
     private SeekBar seekFontSize;
@@ -63,7 +63,7 @@ public class HomeActivity extends AppCompatActivity {
     private ImageView iconHome, iconMaterials, iconProfile;
     private TextView textHome, textMaterials, textProfile;
     private LinearLayout navHome, navMaterials, navProfile;
-    private CardView cardAnnouncement, cardLearningMaterial, cardFontSizeControl;
+    private CardView cardLearningMaterial, cardFontSizeControl;
     private SwipeRefreshLayout swipeRefreshHome;
     private View topBar;
 
@@ -220,7 +220,6 @@ public class HomeActivity extends AppCompatActivity {
         btnOpenLearningMaterial     = findViewById(R.id.btnOpenLearningMaterial);
         txtWelcome                  = findViewById(R.id.txtWelcome);
         txtSubtitle                 = findViewById(R.id.txtSubtitle);
-        txtAnnouncement             = findViewById(R.id.txtAnnouncement);
         txtUpdateTitle              = findViewById(R.id.textUpdateTitle);
         txtLearningMaterialSubtitle = findViewById(R.id.txtLearningMaterialSubtitle);
         txtVoiceStatus              = findViewById(R.id.txtVoiceStatus);
@@ -239,7 +238,6 @@ public class HomeActivity extends AppCompatActivity {
         textHome                    = findViewById(R.id.textHome);
         textMaterials               = findViewById(R.id.textMaterials);
         textProfile                 = findViewById(R.id.textProfile);
-        cardAnnouncement            = findViewById(R.id.cardAnnouncement);
         cardLearningMaterial        = findViewById(R.id.cardLearningMaterial);
         cardFontSizeControl         = findViewById(R.id.cardFontSizeControl);
         swipeRefreshHome             = findViewById(R.id.swipeRefreshHome);
@@ -458,12 +456,6 @@ public class HomeActivity extends AppCompatActivity {
             return;
         }
 
-        if (cmd.contains("announcement") || cmd.contains("read update")
-                || cmd.contains("read notice")) {
-            readAnnouncement();
-            return;
-        }
-
         if (cmd.contains("recommended") || cmd.contains("bigger text")
                 || cmd.contains("large text") || cmd.contains("recommended font")) {
             useRecommendedFont();
@@ -537,7 +529,6 @@ public class HomeActivity extends AppCompatActivity {
                 "Say open latest material to open the newest lesson. " +
                 "Say materials to view all learning materials. " +
                 "Say profile to open your profile. " +
-                "Say read announcement to hear the instructor message. " +
                 "Say recommended font to use the recommended text size. " +
                 "Say default font to use the default text size. " +
                 "Say repeat to hear my last message. " +
@@ -548,24 +539,11 @@ public class HomeActivity extends AppCompatActivity {
     private void readScreen() {
         String welcome      = txtWelcome      != null ? txtWelcome.getText().toString()      : "Welcome.";
         String subtitle     = txtSubtitle     != null ? txtSubtitle.getText().toString()     : "";
-        String announcement = txtAnnouncement != null ? txtAnnouncement.getText().toString() : "No announcement.";
         String material     = txtUpdateTitle  != null ? txtUpdateTitle.getText().toString()  : "No material.";
 
         speak(welcome + ". " + subtitle + ". "
                 + "Latest learning material: " + material + ". "
-                + "Announcement: " + announcement + ". "
                 + "Say help for commands.", true);
-    }
-
-    private void readAnnouncement() {
-        String text = txtAnnouncement != null ? txtAnnouncement.getText().toString().trim() : "";
-        if (text.isEmpty()
-                || text.equalsIgnoreCase("Instructor announcement will appear here.")
-                || text.equalsIgnoreCase("No announcement available yet.")) {
-            speak("There is no instructor announcement available yet.", true);
-        } else {
-            speak("Instructor announcement. " + text, true);
-        }
     }
 
     private void useRecommendedFont() {
@@ -726,7 +704,6 @@ public class HomeActivity extends AppCompatActivity {
                 latestMaterialId = ""; latestTitle = ""; latestFileUrl = "";
                 if (txtUpdateTitle              != null) txtUpdateTitle.setText("No learning material available yet");
                 if (txtLearningMaterialSubtitle != null) txtLearningMaterialSubtitle.setText("Wait for your instructor or admin to send a lesson.");
-                if (txtAnnouncement             != null) txtAnnouncement.setText("No announcement available yet.");
                 return;
             }
 
@@ -745,16 +722,13 @@ public class HomeActivity extends AppCompatActivity {
                 latestMaterialId = ""; latestTitle = ""; latestFileUrl = "";
                 if (txtUpdateTitle              != null) txtUpdateTitle.setText("No learning material available yet");
                 if (txtLearningMaterialSubtitle != null) txtLearningMaterialSubtitle.setText("Wait for your instructor or admin to send a lesson.");
-                if (txtAnnouncement             != null) txtAnnouncement.setText("No announcement available yet.");
                 return;
             }
 
             latestMaterialId     = latest.optString("id",    "");
             latestTitle          = latest.optString("title", "Learning Material");
             latestFileUrl        = buildFileUrl(latest.optString("file_path", ""));
-            String announcement  = latest.optString("announcement", "").trim();
 
-            if (txtAnnouncement             != null) txtAnnouncement.setText(!announcement.isEmpty() ? announcement : "No announcement available yet.");
             if (txtUpdateTitle              != null) txtUpdateTitle.setText(latestTitle);
             if (txtLearningMaterialSubtitle != null) txtLearningMaterialSubtitle.setText("Tap to open your latest accessible learning material.");
             updateVoiceStatus("Material loaded.");
@@ -789,13 +763,12 @@ public class HomeActivity extends AppCompatActivity {
 
         if (txtWelcome     != null) txtWelcome.setText(greeting + name + "! 👋");
         if (txtSubtitle    != null) txtSubtitle.setText("Ready to start your learning journey?");
-        if (txtAnnouncement!= null) txtAnnouncement.setText("Instructor announcement will appear here.");
     }
 
     private void initializeVoiceStatus() {
         if (txtVoiceHint != null)
             txtVoiceHint.setText("Voice commands: Help, Read screen, Open latest material, " +
-                    "Materials, Profile, Read announcement, Recommended font, Default font, Repeat, Stop, Logout.");
+                    "Materials, Profile, Recommended font, Default font, Repeat, Stop, Logout.");
         updateVoiceStatus("Initializing...");
         updateRecognizedText("Waiting for speech...");
     }
@@ -815,7 +788,6 @@ public class HomeActivity extends AppCompatActivity {
             int progress = Math.round(Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, b)) - MIN_FONT_SIZE);
             if (seekFontSize.getProgress() != progress) seekFontSize.setProgress(progress);
         }
-        if (txtAnnouncement             != null) txtAnnouncement.setTextSize(16f);
         if (txtUpdateTitle              != null) txtUpdateTitle.setTextSize(b + 1);
         if (txtLearningMaterialSubtitle != null) txtLearningMaterialSubtitle.setTextSize(16f);
 
@@ -847,7 +819,6 @@ public class HomeActivity extends AppCompatActivity {
 
         if (btnMenu          != null) btnMenu.setOnClickListener(v -> { bounceView(btnMenu); materialsDrawer.open(); });
         if (btnHelp          != null) btnHelp.setOnClickListener(v -> { bounceView(btnHelp); openHelp(); });
-        if (cardAnnouncement != null) cardAnnouncement.setOnClickListener(v -> { bounceView(cardAnnouncement); readAnnouncement(); });
     }
 
     private void openHelp() {
@@ -883,7 +854,7 @@ public class HomeActivity extends AppCompatActivity {
     private void updateRecognizedText(String s) { runOnUiThread(() -> { if (txtRecognizedText != null) txtRecognizedText.setText(s); }); }
 
     private void setupPressAnimations() {
-        for (View v : new View[]{btnMenu, btnHelp, btnOpenLearningMaterial, cardAnnouncement,
+        for (View v : new View[]{btnMenu, btnHelp, btnOpenLearningMaterial,
                 cardLearningMaterial}) {
             if (v == null) continue;
             v.setOnTouchListener((view, event) -> {
@@ -916,7 +887,6 @@ public class HomeActivity extends AppCompatActivity {
         if (txtWelcome != null) { txtWelcome.setAlpha(0f); txtWelcome.setTranslationY(-40f); txtWelcome.animate().alpha(1f).translationY(0f).setStartDelay(90).setDuration(380).setInterpolator(new AccelerateDecelerateInterpolator()).start(); }
         if (txtSubtitle != null) { txtSubtitle.setAlpha(0f); txtSubtitle.setTranslationY(-30f); txtSubtitle.animate().alpha(1f).translationY(0f).setStartDelay(150).setDuration(360).start(); }
         if (cardFontSizeControl != null) { cardFontSizeControl.setAlpha(0f); cardFontSizeControl.setTranslationY(55f); cardFontSizeControl.animate().alpha(1f).translationY(0f).setStartDelay(210).setDuration(380).start(); }
-        if (cardAnnouncement    != null) { cardAnnouncement.setAlpha(0f);    cardAnnouncement.setTranslationY(55f);    cardAnnouncement.animate().alpha(1f).translationY(0f).setStartDelay(300).setDuration(380).start(); }
         if (cardLearningMaterial!= null) { cardLearningMaterial.setAlpha(0f); cardLearningMaterial.setTranslationY(55f); cardLearningMaterial.animate().alpha(1f).translationY(0f).setStartDelay(390).setDuration(380).start(); }
     }
 

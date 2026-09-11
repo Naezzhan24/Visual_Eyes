@@ -410,6 +410,18 @@ public class FeedbackActivity extends AppCompatActivity {
         });
     }
 
+    private void goToMaterials() {
+        lastSpokenInstruction = "Going back to materials.";
+        say(lastSpokenInstruction, null);
+        updateVoiceStatus("Returning to materials.");
+        handler.postDelayed(() -> {
+            Intent intent = new Intent(this, MaterialsActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(intent);
+            finish();
+        }, 600);
+    }
+
     private void stopListeningSafely() {
         isListening = false;
         voiceSessionId++;
@@ -511,6 +523,14 @@ public class FeedbackActivity extends AppCompatActivity {
             lastSpokenInstruction = "Voice feedback cancelled.";
             say(lastSpokenInstruction, null);
             updateVoiceStatus("Voice feedback cancelled.");
+            return;
+        }
+
+        if (lower.equals("materials") || lower.equals("back") || lower.equals("go back")
+                || lower.equals("back to materials") || lower.equals("bumalik")) {
+            isVoiceMode = false;
+            stopListeningSafely();
+            goToMaterials();
             return;
         }
 

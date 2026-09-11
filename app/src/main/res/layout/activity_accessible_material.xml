@@ -89,11 +89,12 @@
                     android:id="@+id/txtReaderInfo"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
+                    android:layout_marginTop="6dp"
                     android:gravity="center"
-                    android:text="Impairment: moderate • Text size: 24sp"
-                    android:textColor="#F2DDE3"
-                    android:textSize="12sp" />
+                    android:text="Impairment: moderate\nText size: 24sp"
+                    android:textColor="#FFFFFF"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
