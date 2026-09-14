@@ -9,18 +9,20 @@ Students with visual impairments in Philippine schools often can't use standard 
 ## Core features
 
 - **Accessibility-first onboarding** — an assessment during registration determines the student's visual impairment level and recommended text size, and the app adapts to it (`FontSizeManager`).
-- **Voice-first interaction** — registration, navigation, and reading can all be done by voice, not just tapped.
-- **Hybrid speech engine** — combines on-device Vosk (offline, real-time partial results) with cloud Whisper/Google STT and TTS, cascading between them (`HybridSpeechManager`, `SttCascadeSession`, `SpeechEngineHealth`). This means core voice interaction keeps working even with poor or no internet, which is common in the schools this app targets.
-- **Accessible material viewer** — reads PDFs and learning materials aloud, tracks read progress, and extracts page content for TTS (`AccessibleMaterialActivity`, `MaterialViewerActivity`, `PdfPageImageExtractor`, `MaterialReadTracker`).
+- **Voice-guided registration** — every field is read back for confirmation before it's accepted (spelled out letter-by-letter for names, "at"/"dot" read-back for emails), with a letter-by-letter correction flow when the recognizer mishears a name, and a spoken Privacy Policy agreement step before submitting (`RegisterActivity`).
+- **Voice-first interaction** — registration, navigation, and reading can all be done by voice, not just tapped. Returning users are greeted with "Welcome back"; a fresh install gets a plain "Welcome" (`AuthManager.hasSeenHome`).
+- **Hybrid speech engine** — combines the on-device Android recognizer, offline Vosk (real-time partial results), and cloud Whisper/Google STT, cascading between them in that order so voice commands keep working even with poor or no internet (`HybridSpeechManager`, `SttCascadeSession`, `SpeechEngineHealth`). Recognizer restart/retry timing (no-speech, engine-busy) is standardized across every voice screen.
+- **Accessible material viewer** — reads PDFs and learning materials aloud, tracks read progress, and extracts page content for TTS (`AccessibleMaterialActivity`, `MaterialViewerActivity`, `PdfPageImageExtractor`, `MaterialReadTracker`). Read-aloud highlights the exact word being spoken (karaoke-style, via TTS word-boundary callbacks) and auto-scrolls to keep it on screen, falling back to a whole-paragraph highlight on devices/voices that don't report word boundaries.
 - **Feedback loop** — students can rate and comment on materials so schools know what's working (`FeedbackActivity`).
 - **Privacy Policy in-app** — readable and voice-narrated, since some users can't read a wall of text on their own (`PrivacyPolicyActivity`).
 
 ## Architecture
 
 - **Client**: Android (Java), single module (`app/`)
-- **Backend**: [Supabase](https://supabase.com) — auth, database, storage, and edge functions for `google-stt`, `google-tts`, and `whisper-transcribe` (`supabase/functions/`)
+- **Backend**: [Supabase](https://supabase.com) — session-token auth, database, storage, and edge functions for `google-stt`, `google-tts`, and `whisper-transcribe` (`supabase/functions/`)
 - **Crash reporting**: Firebase Crashlytics + Analytics, gated on the presence of `google-services.json` so the project still builds without Firebase configured
 - **On-device speech**: [Vosk](https://alphacephei.com/vosk/) for offline recognition
+- **Speech fallback ladder**: built-in Android `SpeechRecognizer` → cloud Whisper/Google STT → offline Vosk, each screen falling through to the next rather than giving up after one failed engine (`SttCascadeSession`)
 
 ## Getting started
 
