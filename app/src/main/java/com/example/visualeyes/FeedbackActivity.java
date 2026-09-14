@@ -46,6 +46,10 @@ public class FeedbackActivity extends AppCompatActivity {
 
     private static final int  MAX_RETRY            = 4;
     private static final float VOICE_SPEAKING_RATE = 1.10f;
+    // Matches the reinit-settle + retry pacing standardized across every
+    // mic-using screen (400ms to tear down/recreate, 600ms before retry).
+    private static final long MIC_BUSY_REINIT_DELAY_MS = 400L;
+    private static final long MIC_BUSY_RETRY_DELAY_MS  = 600L;
 
     private ScrollView feedbackScrollView;
     private ImageView btnBack;
@@ -318,13 +322,26 @@ public class FeedbackActivity extends AppCompatActivity {
             @Override public void onError(int error) {
                 if (mySession != voiceSessionId) return;
                 isListening = false;
-                Log.e("Feedback_STT", "Built-in recognizer onError code=" + error);
                 if (!latestPartialText.trim().isEmpty()) {
                     String heard = latestPartialText.trim();
                     latestPartialText = "";
                     resultHandler.onTranscript(heard);
                     return;
                 }
+
+                if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
+                    handler.postDelayed(() -> {
+                        if (mySession != voiceSessionId) return;
+                        handler.postDelayed(() -> {
+                            if (mySession == voiceSessionId) {
+                                listenAndHandle(mode, fieldDescription, resultHandler);
+                            }
+                        }, MIC_BUSY_RETRY_DELAY_MS);
+                    }, MIC_BUSY_REINIT_DELAY_MS);
+                    return;
+                }
+
+                Log.e("Feedback_STT", "Built-in recognizer onError code=" + error);
                 cascadeListen(mode, fieldDescription, resultHandler);
             }
 

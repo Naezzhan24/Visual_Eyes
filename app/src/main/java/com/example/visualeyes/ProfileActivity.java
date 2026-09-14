@@ -54,6 +54,11 @@ public class ProfileActivity extends AppCompatActivity {
     private static final long   LISTEN_DELAY_NORMAL      = 500L;
     private static final long   LISTEN_DELAY_AFTER_TTS   = 400L;
     private static final long   COMMAND_COOLDOWN         = 900L;
+    // Standardized across every mic-using screen: give the OS 400ms to
+    // actually tear down/recreate the recognizer, then wait another 600ms
+    // before the first retry so it isn't immediately busy again.
+    private static final long   MIC_BUSY_REINIT_DELAY_MS = 400L;
+    private static final long   MIC_BUSY_RETRY_DELAY_MS  = 600L;
 
     private ImageView iconHome, iconMaterials, iconProfile;
     private TextView txtStudentName, txtCourse, txtEmail, txtStudentNumber, txtAge, txtYearLevel, txtImpairmentLevel;
@@ -280,6 +285,9 @@ public class ProfileActivity extends AppCompatActivity {
             updateVoiceStatus("Speech recognition not available.");
             return;
         }
+        if (speechRecognizer != null) {
+            try { speechRecognizer.cancel(); speechRecognizer.destroy(); } catch (Exception ignored) {}
+        }
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
         speechRecognizer.setRecognitionListener(new RecognitionListener() {
 
@@ -304,12 +312,15 @@ public class ProfileActivity extends AppCompatActivity {
                     case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
                         updateVoiceStatus("No speech detected.");
                         updateRecognizedText("Waiting for speech...");
-                        if (isSttEnabled && !isTtsSpeaking) scheduleListening(LISTEN_DELAY_NORMAL);
+                        if (isSttEnabled && !isTtsSpeaking) cascadeFromBuiltIn();
                         return;
                     case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
                         updateVoiceStatus("Recognizer busy.");
                         updateRecognizedText("Waiting for speech...");
-                        if (isSttEnabled && !isTtsSpeaking) scheduleListening(LISTEN_DELAY_NORMAL);
+                        handler.postDelayed(() -> {
+                            setupSpeechRecognizer();
+                            if (isSttEnabled && !isTtsSpeaking) scheduleListening(MIC_BUSY_RETRY_DELAY_MS);
+                        }, MIC_BUSY_REINIT_DELAY_MS);
                         return;
                     default:
                         Log.e("Profile_STT", "Built-in recognizer onError code=" + error);

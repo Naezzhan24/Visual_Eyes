@@ -107,6 +107,10 @@ public class LoginActivity extends AppCompatActivity {
     private static final long PROMPT_RETRY_DELAY  = 1600L;
 
     private static final long ANDROID_ASR_TIMEOUT = 8500L;
+    // Matches the reinit-settle + retry pacing standardized across every
+    // mic-using screen (400ms to tear down/recreate, 600ms before retry).
+    private static final long MIC_BUSY_REINIT_DELAY_MS = 400L;
+    private static final long MIC_BUSY_RETRY_DELAY_MS  = 600L;
     private String pendingSttMode = "command";
 
     private static final float VOICE_SPEAKING_RATE = 1.10f;
@@ -850,8 +854,8 @@ public class LoginActivity extends AppCompatActivity {
                     speechRecognizer = null;
                     handler.postDelayed(() -> {
                         buildAndAttachRecognizer();
-                        startGoogleListening(pendingSttMode);
-                    }, 800);
+                        handler.postDelayed(() -> startGoogleListening(pendingSttMode), MIC_BUSY_RETRY_DELAY_MS);
+                    }, MIC_BUSY_REINIT_DELAY_MS);
                     return;
                 }
 

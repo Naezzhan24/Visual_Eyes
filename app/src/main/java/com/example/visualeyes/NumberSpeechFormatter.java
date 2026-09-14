@@ -86,25 +86,86 @@ public final class NumberSpeechFormatter {
      * SSML support (Android's on-device TextToSpeech).
      */
     public static String toPlainSpeech(String text) {
-        if (text == null || text.isEmpty()) return text;
+        return toPlainSpeechMapped(text).text;
+    }
+
+    /**
+     * Same rewrite as {@link #toPlainSpeech}, but also keeps a position map back
+     * to the original text — needed to translate a TTS engine's word-boundary
+     * offsets (reported against the rewritten "spoken" string, e.g. "1995" ->
+     * "nineteen ninety-five") back to offsets in the original displayed text.
+     */
+    public static MappedSpeech toPlainSpeechMapped(String text) {
+        if (text == null || text.isEmpty()) {
+            return new MappedSpeech(text == null ? "" : text, new int[]{0});
+        }
 
         Matcher m = NUMERIC_TOKEN.matcher(text);
         StringBuilder out = new StringBuilder();
+        // spokenToOriginal[i] = the original-text offset that spoken-text offset i
+        // came from; one entry per output character plus a trailing sentinel so a
+        // word's exclusive "end" offset can be mapped too. Grows on demand rather
+        // than guessing a fixed expansion factor for how much a number can grow
+        // when spelled out (e.g. "1995" -> "nineteen ninety-five").
+        int[] spokenToOriginal = new int[text.length() + 16];
+        int outLen = 0;
         int last = 0;
         while (m.find()) {
-            out.append(text, last, m.start());
-            String token = m.group();
-            if (PHONE.matcher(token).matches()) {
-                out.append(spellDigits(token));
-            } else if (DECADE.matcher(token).matches()) {
-                out.append(spellDecade(token.substring(0, token.length() - 1)));
-            } else {
-                out.append(spellYear(token));
+            for (int i = last; i < m.start(); i++) {
+                spokenToOriginal = growIfNeeded(spokenToOriginal, outLen);
+                spokenToOriginal[outLen++] = i;
+                out.append(text.charAt(i));
             }
+            String token = m.group();
+            String replacement;
+            if (PHONE.matcher(token).matches()) {
+                replacement = spellDigits(token);
+            } else if (DECADE.matcher(token).matches()) {
+                replacement = spellDecade(token.substring(0, token.length() - 1));
+            } else {
+                replacement = spellYear(token);
+            }
+            // A rewritten number has no exact per-character original counterpart —
+            // every character of the replacement maps back to where the token started.
+            for (int i = 0; i < replacement.length(); i++) {
+                spokenToOriginal = growIfNeeded(spokenToOriginal, outLen);
+                spokenToOriginal[outLen++] = m.start();
+            }
+            out.append(replacement);
             last = m.end();
         }
-        out.append(text.substring(last));
-        return out.toString();
+        for (int i = last; i < text.length(); i++) {
+            spokenToOriginal = growIfNeeded(spokenToOriginal, outLen);
+            spokenToOriginal[outLen++] = i;
+            out.append(text.charAt(i));
+        }
+        spokenToOriginal = growIfNeeded(spokenToOriginal, outLen);
+        spokenToOriginal[outLen] = text.length();
+
+        int[] trimmed = java.util.Arrays.copyOf(spokenToOriginal, outLen + 1);
+        return new MappedSpeech(out.toString(), trimmed);
+    }
+
+    private static int[] growIfNeeded(int[] array, int neededIndex) {
+        if (neededIndex < array.length) return array;
+        return java.util.Arrays.copyOf(array, array.length * 2);
+    }
+
+    /** A speech-formatted string plus the means to map its offsets back to the original text. */
+    public static final class MappedSpeech {
+        public final String text;
+        private final int[] spokenToOriginal;
+
+        private MappedSpeech(String text, int[] spokenToOriginal) {
+            this.text = text;
+            this.spokenToOriginal = spokenToOriginal;
+        }
+
+        /** Maps an offset within {@link #text} back to the nearest offset in the original text. */
+        public int originalOffsetFor(int spokenOffset) {
+            int clamped = Math.max(0, Math.min(spokenOffset, spokenToOriginal.length - 1));
+            return spokenToOriginal[clamped];
+        }
     }
 
     /** Spells out every digit in {@code token} one at a time, ignoring non-digit characters. */

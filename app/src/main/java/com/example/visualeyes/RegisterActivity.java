@@ -95,9 +95,15 @@ public class RegisterActivity extends AppCompatActivity {
     private boolean isAwaitingLetterValue     = false;
     private int     correctingLetterPosition  = 0;
 
+    private boolean isAwaitingPrivacyAgreement = false;
+
     private static final int MAX_RETRY      = 4;
 
     private static final long VOICE_INPUT_TIMEOUT_MS = 11000L;
+    // Matches the reinit-settle + retry pacing standardized across every
+    // mic-using screen (400ms to tear down/recreate, 600ms before retry).
+    private static final long MIC_BUSY_REINIT_DELAY_MS = 400L;
+    private static final long MIC_BUSY_RETRY_DELAY_MS  = 600L;
 
     private static final float VOICE_SPEAKING_RATE = 1.10f;
 
@@ -403,8 +409,9 @@ public class RegisterActivity extends AppCompatActivity {
         retryCount        = 0;
         latestPartialText = "";
         pendingValue      = "";
-        isAwaitingLetterPosition = false;
-        isAwaitingLetterValue    = false;
+        isAwaitingLetterPosition  = false;
+        isAwaitingLetterValue     = false;
+        isAwaitingPrivacyAgreement = false;
         currentFieldIndex = findFirstEmptyFieldIndex();
 
         if (currentFieldIndex >= voiceFields.length) {
@@ -426,7 +433,7 @@ public class RegisterActivity extends AppCompatActivity {
         skipFilledFields();
 
         if (currentFieldIndex >= voiceFields.length) {
-            finishVoiceRegistration();
+            promptPrivacyAgreement();
             return;
         }
 
@@ -532,6 +539,23 @@ public class RegisterActivity extends AppCompatActivity {
                 isListening = false;
                 if (!isVoiceMode || isAdvancingField) return;
 
+                if (!latestPartialText.trim().isEmpty()) {
+                    String heard = latestPartialText.trim();
+                    latestPartialText = "";
+                    handleSpokenText(heard);
+                    return;
+                }
+
+                if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
+                    handler.postDelayed(() -> {
+                        if (mySession != voiceSessionId) return;
+                        handler.postDelayed(() -> {
+                            if (mySession == voiceSessionId) startVoiceInput();
+                        }, MIC_BUSY_RETRY_DELAY_MS);
+                    }, MIC_BUSY_REINIT_DELAY_MS);
+                    return;
+                }
+
                 Log.e("Register_STT", "Built-in recognizer onError code=" + error
                         + " (" + speechErrorName(error) + ")");
 
@@ -539,13 +563,6 @@ public class RegisterActivity extends AppCompatActivity {
                     Log.e("Register_STT", "Built-in recognizer is not usable on this device — "
                             + "skipping it from now on.");
                     SpeechEngineHealth.markBuiltInRecognizerBroken(RegisterActivity.this);
-                }
-
-                if (!latestPartialText.trim().isEmpty()) {
-                    String heard = latestPartialText.trim();
-                    latestPartialText = "";
-                    handleSpokenText(heard);
-                    return;
                 }
 
                 cascadeFromBuiltIn();
@@ -714,8 +731,9 @@ public class RegisterActivity extends AppCompatActivity {
 
         if (lower.contains("cancel") || lower.equals("stop")) {
             isVoiceMode = false;
-            isAwaitingLetterPosition = false;
-            isAwaitingLetterValue    = false;
+            isAwaitingLetterPosition  = false;
+            isAwaitingLetterValue     = false;
+            isAwaitingPrivacyAgreement = false;
             stopListeningSafely();
             lastSpokenInstruction = "Voice registration cancelled.";
             say(lastSpokenInstruction, null);
@@ -730,6 +748,11 @@ public class RegisterActivity extends AppCompatActivity {
 
         if (isAwaitingLetterValue) {
             handleLetterValueResponse(lower);
+            return;
+        }
+
+        if (isAwaitingPrivacyAgreement) {
+            handlePrivacyAgreementResponse(lower);
             return;
         }
 
@@ -820,6 +843,59 @@ public class RegisterActivity extends AppCompatActivity {
             default: return spoken;
         }
         return nameNormalizer.normalize(spoken, type).getText();
+    }
+
+    private void promptPrivacyAgreement() {
+        if (!isVoiceMode) return;
+        isAwaitingPrivacyAgreement = true;
+        retryCount         = 0;
+        hasProcessedSpeech = false;
+        latestPartialText  = "";
+
+        updateVoiceStatus("Do you agree to the Privacy Policy?");
+        lastSpokenInstruction = "Last step. Do you agree to the Privacy Policy? Say yes to agree and continue, " +
+                "or no if you'd like to read it first.";
+        say(lastSpokenInstruction, this::startVoiceInput);
+    }
+
+    private void handlePrivacyAgreementResponse(String lower) {
+        if (isYes(lower)) {
+            isAwaitingPrivacyAgreement = false;
+            retryCount = 0;
+            if (switchAgreePrivacy != null) {
+                runOnUiThread(() -> switchAgreePrivacy.setChecked(true));
+            }
+            updateVoiceStatus("Privacy Policy agreed.");
+            finishVoiceRegistration();
+
+        } else if (isNo(lower)) {
+            isAwaitingPrivacyAgreement = false;
+            retryCount  = 0;
+            isVoiceMode = false;
+            stopListeningSafely();
+            if (switchAgreePrivacy != null) {
+                runOnUiThread(() -> switchAgreePrivacy.setChecked(false));
+            }
+            lastSpokenInstruction = "Okay, I won't submit yet. Tap Read the full Privacy Policy to review it, " +
+                    "then tap the switch above the Continue button and press Continue when you're ready.";
+            say(lastSpokenInstruction, null);
+            updateVoiceStatus("Please review the Privacy Policy, then tap Continue.");
+
+        } else {
+            retryCount++;
+            if (retryCount <= MAX_RETRY) {
+                lastSpokenInstruction = "Please say yes to agree, or no if you want to read it first.";
+                say(lastSpokenInstruction, this::startVoiceInput);
+            } else {
+                retryCount = 0;
+                isAwaitingPrivacyAgreement = false;
+                isVoiceMode = false;
+                stopListeningSafely();
+                lastSpokenInstruction = "Let's pause here. Use the switch above the Continue button to agree to " +
+                        "the Privacy Policy, then press Continue.";
+                say(lastSpokenInstruction, null);
+            }
+        }
     }
 
     private void finishVoiceRegistration() {
@@ -958,11 +1034,26 @@ public class RegisterActivity extends AppCompatActivity {
             case 3: return "I heard " + value + " as your age. Is that correct? Say yes or no.";
             case 4: return "I heard " + value + " as your year level. Is that correct? Say yes or no.";
             case 5: return "I heard " + NumberSpeechFormatter.spellDigits(value) + " as your school ID. Is that correct? Say yes or no.";
-            case 6: return "I heard your email address. Is that correct? Say yes or no.";
+            case 6: return "I heard your email as " + speakableEmail(value) + ". Is that correct? Say yes or no.";
             case 7: return "Password received. Is that correct? Say yes or no.";
             case 8: return "Confirm password received. Is that correct? Say yes or no.";
             default: return "I heard " + value + ". Is that correct? Say yes or no.";
         }
+    }
+
+    /** Reads an email back in a speakable form, e.g. "juan dot delacruz at gmail dot com". */
+    private String speakableEmail(String email) {
+        StringBuilder sb = new StringBuilder();
+        for (char c : email.toCharArray()) {
+            switch (c) {
+                case '@': sb.append(" at ");         break;
+                case '.': sb.append(" dot ");         break;
+                case '_': sb.append(" underscore ");  break;
+                case '-': sb.append(" dash ");        break;
+                default:  sb.append(c);
+            }
+        }
+        return sb.toString().replaceAll("\\s+", " ").trim();
     }
 
     private String spellOut(String s) {

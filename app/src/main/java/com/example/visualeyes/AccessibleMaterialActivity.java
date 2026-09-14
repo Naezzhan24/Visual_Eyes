@@ -13,8 +13,11 @@ import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
+import android.text.Layout;
+import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.Spanned;
+import android.text.style.BackgroundColorSpan;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.RelativeSizeSpan;
 import android.text.style.StyleSpan;
@@ -94,7 +97,17 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private final List<TextView> captionTextViews = new ArrayList<>();
     private final List<View>     blockViews       = new ArrayList<>();
     private int highlightedBlockIndex = -1;
-    private static final int READ_ALOUD_HIGHLIGHT_COLOR = 0x40FFC107;
+    // Karaoke-style highlight: a single reusable span moved onto whichever
+    // word the TTS engine is currently speaking (see onRangeStart below).
+    private static final int READ_ALOUD_HIGHLIGHT_COLOR = 0xFFFFC107;
+    private final BackgroundColorSpan wordHighlightSpan = new BackgroundColorSpan(READ_ALOUD_HIGHLIGHT_COLOR);
+    private NumberSpeechFormatter.MappedSpeech pendingWordMap;
+    private int pendingWordPrefixLen;
+    // Not every TTS engine/voice reports word boundaries. Until the first
+    // onRangeStart for a chunk actually arrives, fall back to washing the
+    // whole paragraph so reading is never left with no visual highlight at
+    // all; the moment word-level data shows up, this flips off for good.
+    private static final int READ_ALOUD_PARAGRAPH_FALLBACK_COLOR = 0x40FFC107;
 
     private String materialId    = "";
     private String fileUrl       = "";
@@ -915,7 +928,10 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
                 if (!block.isHeading) {
                     tv.setJustificationMode(android.text.Layout.JUSTIFICATION_MODE_INTER_WORD);
                 }
-                tv.setText(block.text);
+                // SPANNABLE buffer type keeps tv.getText() mutable so the karaoke
+                // word highlight can setSpan/removeSpan on it directly later,
+                // instead of rebuilding the whole text on every word boundary.
+                tv.setText(block.text, TextView.BufferType.SPANNABLE);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 lp.bottomMargin = dp(12);
@@ -993,8 +1009,26 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
             @Override public void onStart(String id) {
                 isTtsSpeaking = true;
-                if ("CHUNK".equals(id)) highlightChunk(lastReadChunkIndex);
+                if ("CHUNK".equals(id)) {
+                    int blockIndex = lastReadChunkIndex;
+                    runOnUiThread(() -> highlightParagraphFallback(blockIndex));
+                }
                 runOnUiThread(() -> setVoiceStatus("Voice: speaking..."));
+            }
+
+            @Override public void onRangeStart(String id, int start, int end, int frame) {
+                if (!"CHUNK".equals(id) || pendingWordMap == null) return;
+                int bodyStart = start - pendingWordPrefixLen;
+                int bodyEnd   = end   - pendingWordPrefixLen;
+                // A range inside the spoken "Paragraph N." / "Heading." prefix has
+                // no counterpart in the displayed text — nothing to highlight yet.
+                if (bodyEnd <= 0) return;
+                bodyStart = Math.max(bodyStart, 0);
+
+                int origStart  = pendingWordMap.originalOffsetFor(bodyStart);
+                int origEnd    = pendingWordMap.originalOffsetFor(bodyEnd);
+                int blockIndex = lastReadChunkIndex;
+                runOnUiThread(() -> highlightWord(blockIndex, origStart, origEnd));
             }
 
             @Override public void onDone(String id) {
@@ -1467,17 +1501,24 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         if (block.type == ReaderBlock.Type.TEXT) {
             lastReadParagraphNumber = paragraphNumber;
             String bodyText = block.text != null ? block.text.toString() : "";
+            String prefix;
             if (block.isHeading) {
-                spoken = "Heading. " + bodyText;
+                prefix = "Heading. ";
             } else {
-                spoken = "Paragraph " + paragraphNumber + ". " + bodyText;
+                prefix = "Paragraph " + paragraphNumber + ". ";
                 paragraphNumber++;
             }
+            // Mapped separately from the prefix so onRangeStart's word offsets
+            // (reported against this spoken string) can be translated back to
+            // offsets in the original, displayed bodyText for the word highlight.
+            pendingWordMap       = NumberSpeechFormatter.toPlainSpeechMapped(bodyText);
+            pendingWordPrefixLen = prefix.length();
+            spoken = prefix + pendingWordMap.text;
         } else {
-            spoken = "Image. " + (block.caption != null && !block.caption.trim().isEmpty()
-                    ? block.caption : "No description available.");
+            pendingWordMap = null;
+            spoken = NumberSpeechFormatter.toPlainSpeech("Image. " + (block.caption != null && !block.caption.trim().isEmpty()
+                    ? block.caption : "No description available."));
         }
-        spoken = NumberSpeechFormatter.toPlainSpeech(spoken);
 
         if (tts != null) {
             tts.stop();
@@ -1564,15 +1605,77 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         return chunks;
     }
 
-    /** Highlights the block currently being read aloud, clearing whichever one was highlighted before. */
-    private void highlightChunk(int index) {
-        runOnUiThread(() -> {
+    /**
+     * Fallback shown from onStart until the first onRangeStart arrives for this
+     * chunk (or forever, for engines/voices that never report word boundaries,
+     * and for images, which have no body words to highlight at all) — a
+     * translucent wash over the whole block, same as before word-level
+     * highlighting existed. Must run on the UI thread.
+     */
+    private void highlightParagraphFallback(int index) {
+        clearChunkHighlightInternal();
+        if (index < 0 || index >= blockViews.size()) return;
+        View v = blockViews.get(index);
+        if (v != null) v.setBackgroundColor(READ_ALOUD_PARAGRAPH_FALLBACK_COLOR);
+        highlightedBlockIndex = index;
+    }
+
+    /**
+     * Moves the karaoke-style word highlight onto [start, end) of the given block's
+     * text, clearing it from whichever word/block was highlighted before (including
+     * the paragraph-wash fallback, once real word data starts arriving for it). Must
+     * run on the UI thread — callers post via runOnUiThread themselves.
+     */
+    private void highlightWord(int blockIndex, int start, int end) {
+        if (blockIndex < 0 || blockIndex >= blockViews.size()) return;
+        View v = blockViews.get(blockIndex);
+        if (!(v instanceof TextView)) return;
+        CharSequence current = ((TextView) v).getText();
+        if (!(current instanceof Spannable)) return;
+        Spannable spannable = (Spannable) current;
+
+        if (blockIndex != highlightedBlockIndex) {
             clearChunkHighlightInternal();
-            if (index < 0 || index >= blockViews.size()) return;
-            View v = blockViews.get(index);
-            if (v != null) v.setBackgroundColor(READ_ALOUD_HIGHLIGHT_COLOR);
-            highlightedBlockIndex = index;
-        });
+            highlightedBlockIndex = blockIndex;
+        } else {
+            // Same block: drop the paragraph-wash fallback color (if the switch
+            // from fallback to word-level is happening right now) and the
+            // previous word's span before placing the new one.
+            v.setBackgroundColor(0x00000000);
+            spannable.removeSpan(wordHighlightSpan);
+        }
+
+        int len = spannable.length();
+        start = Math.max(0, Math.min(start, len));
+        end   = Math.max(start, Math.min(end, len));
+        if (end > start) {
+            spannable.setSpan(wordHighlightSpan, start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            scrollToKeepWordVisible((TextView) v, start);
+        }
+    }
+
+    /**
+     * Follows the word highlight down the page as reading continues. scrollToChunk()
+     * only scrolls once, when a new paragraph starts — with a big enough text size a
+     * single paragraph can be taller than the viewport, so without this the highlight
+     * keeps moving past the bottom of the screen with nothing to bring it back into view.
+     */
+    private void scrollToKeepWordVisible(TextView tv, int wordStart) {
+        if (scrollView == null) return;
+        Layout layout = tv.getLayout();
+        if (layout == null) return;
+
+        int line       = layout.getLineForOffset(wordStart);
+        int lineTop    = tv.getTop() + layout.getLineTop(line);
+        int lineBottom = tv.getTop() + layout.getLineBottom(line);
+
+        int viewportTop    = scrollView.getScrollY();
+        int viewportBottom = viewportTop + scrollView.getHeight();
+        int margin = dp(48);
+
+        if (lineTop < viewportTop + margin || lineBottom > viewportBottom - margin) {
+            scrollView.smoothScrollTo(0, Math.max(0, lineTop - margin));
+        }
     }
 
     private void clearChunkHighlight() {
@@ -1583,6 +1686,12 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         if (highlightedBlockIndex >= 0 && highlightedBlockIndex < blockViews.size()) {
             View v = blockViews.get(highlightedBlockIndex);
             if (v != null) v.setBackgroundColor(0x00000000);
+            if (v instanceof TextView) {
+                CharSequence current = ((TextView) v).getText();
+                if (current instanceof Spannable) {
+                    ((Spannable) current).removeSpan(wordHighlightSpan);
+                }
+            }
         }
         highlightedBlockIndex = -1;
     }

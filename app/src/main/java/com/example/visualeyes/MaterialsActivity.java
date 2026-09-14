@@ -90,6 +90,11 @@ public class MaterialsActivity extends AppCompatActivity {
     private float currentZoomScale = 1.0f;
     private static final float MIN_ZOOM_SCALE = 1.0f;
     private static final float MAX_ZOOM_SCALE = 3.0f;
+    // Standardized across every mic-using screen: give the OS 400ms to
+    // actually tear down/recreate the recognizer, then wait another 600ms
+    // before the first retry so it isn't immediately busy again.
+    private static final long MIC_BUSY_REINIT_DELAY_MS = 400L;
+    private static final long MIC_BUSY_RETRY_DELAY_MS  = 600L;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -278,13 +283,13 @@ public class MaterialsActivity extends AppCompatActivity {
                     case SpeechRecognizer.ERROR_NO_MATCH:
                     case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
                         updateVoiceStatus("No speech detected.");
-                        if (!isTtsSpeaking) scheduleListening(1000);
+                        if (!isTtsSpeaking) cascadeFromBuiltIn();
                         return;
                     case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
                         handler.postDelayed(() -> {
                             initSpeechRecognizer();
-                            scheduleListening(800);
-                        }, 400);
+                            if (!isTtsSpeaking) scheduleListening(MIC_BUSY_RETRY_DELAY_MS);
+                        }, MIC_BUSY_REINIT_DELAY_MS);
                         return;
                     default:
                         Log.e("Materials_STT", "Built-in recognizer onError code=" + error);

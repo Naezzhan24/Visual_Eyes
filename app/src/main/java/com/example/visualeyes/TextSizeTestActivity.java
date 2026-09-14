@@ -92,6 +92,9 @@ public class TextSizeTestActivity extends AppCompatActivity {
     private static final long ASK_DELAY          = 900L;
 
     private static final long RECOGNIZER_REBUILD_DELAY = 400L;
+    // Matches the reinit-settle + retry pacing standardized across every
+    // mic-using screen (400ms to tear down/recreate, 600ms before retry).
+    private static final long MIC_BUSY_RETRY_DELAY_MS  = 600L;
 
     private static final long READ_ALOUD_TIMEOUT_MS        = 15000L;
     private static final long READ_ALOUD_ATTEMPT_TIMEOUT_MS = 6000L;
@@ -613,7 +616,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
                     destroyRecognizer();
                     handler.postDelayed(() -> {
                         if (!testFinished && !answerHandled && !isTtsSpeaking) {
-                            handler.postDelayed(TextSizeTestActivity.this::startAndroidVoiceRecognition, RECOGNIZER_REBUILD_DELAY);
+                            handler.postDelayed(TextSizeTestActivity.this::startAndroidVoiceRecognition, MIC_BUSY_RETRY_DELAY_MS);
                         }
                     }, RECOGNIZER_REBUILD_DELAY);
                     setStatus("Reconnecting microphoneÃ¢Â€Â¦");
