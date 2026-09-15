@@ -87,7 +87,6 @@ public class TextSizeTestActivity extends AppCompatActivity {
 
     private static final int MAX_RETRY            = 3;
 
-    private static final long LISTEN_START_DELAY = 600L;
     private static final long NEXT_ITEM_DELAY    = 550L;
     private static final long ASK_DELAY          = 900L;
 
@@ -547,8 +546,15 @@ public class TextSizeTestActivity extends AppCompatActivity {
         waitingForAnswer = true;
         setStatus("ListeningÃ¢Â€Â¦ You may also tap Yes or No.");
 
-        handler.postDelayed(() -> {
-
+        // Probes whether the mic is actually ready instead of blindly waiting a
+        // fixed delay — this used to be a flat LISTEN_START_DELAY (600ms) on top
+        // of the 600ms speakQuestion() already waits after the TTS question
+        // finishes, so a user answering "yes"/"no" right away (the natural
+        // reaction) had their answer missed for a full 1.2s before the
+        // recognizer was actually listening. MicReadiness resolves almost
+        // immediately once the mic is genuinely free, instead of always paying
+        // that worst-case delay.
+        MicReadiness.awaitReady(handler, () -> {
             if (testFinished || answerHandled || isTtsSpeaking || speechRecognizer == null) {
                 waitingForAnswer = false;
                 return;
@@ -562,7 +568,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
                 setStatus("Voice failed to start. Tap Yes or No.");
                 Log.e("STT", "startListening failed: " + e.getMessage());
             }
-        }, LISTEN_START_DELAY);
+        });
     }
 
     private void stopListeningSafely() {

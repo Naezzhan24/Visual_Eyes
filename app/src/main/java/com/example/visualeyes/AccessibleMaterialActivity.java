@@ -1298,13 +1298,18 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
             speechRecognizer.cancel();
             isListening = true;
             setVoiceStatus("Get ready...");
+            // Start listening the instant the beep finishes — every other screen's
+            // beep-then-listen path does this directly (see FeedbackActivity,
+            // LoginActivity, RegisterActivity). This one used to tack on an extra
+            // 250ms AFTER the beep before actually opening the mic, which is dead
+            // air users have no cue to wait through: they hear the beep (their
+            // signal to speak) and start talking immediately, so that redundant
+            // 250ms was silently clipping the start of the very next utterance.
             AudioCue.playThen(handler, () -> {
                 if (!isListening) return;
-                handler.postDelayed(() -> {
-                    try {
-                        if (speechRecognizer != null) speechRecognizer.startListening(speechIntent);
-                    } catch (Exception e) { isListening = false; }
-                }, 250);
+                try {
+                    if (speechRecognizer != null) speechRecognizer.startListening(speechIntent);
+                } catch (Exception e) { isListening = false; }
             });
         } catch (Exception e) { isListening = false; }
     }
