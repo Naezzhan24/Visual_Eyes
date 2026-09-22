@@ -81,7 +81,8 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
             "faster", "increase speed", "speed up", "bilisan",
             "slower", "decrease speed", "slow down", "bagalan",
             "next", "next paragraph", "continue", "susunod",
-            "repeat", "again", "say again", "ulit"
+            "repeat", "again", "say again", "ulit",
+            "feedback", "puna", "komento"
     };
 
     private TextView txtVoiceStatus, txtReaderTitle, txtReaderInfo, txtReaderContent, txtCurrentSize;
@@ -141,6 +142,10 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private boolean recognizerReady= false;
     private boolean materialLoaded = false;
     private boolean awaitingChunkDecision = false;
+    // True from onPause to onResume. Late mic/TTS callbacks (a cascade that finishes
+    // after the screen was left, a TTS onDone) used to re-open this screen's mic and
+    // speaker while another screen was in front, so the two fought over the microphone.
+    private boolean screenPaused          = false;
     private boolean pausedForBackground   = false;
 
     // Set by speakNow() when TTS init hasn't finished yet, so the announcement
@@ -149,6 +154,10 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private String pendingAnnouncementId   = null;
 
     private float speechRate = 0.85f;
+    // What the reader last applied of the student's global preferences, so onResume can tell when
+    // they changed while this screen was in the background (e.g. after sending Feedback).
+    private float appliedSpeechScale = 1f;
+    private float appliedFontSize    = 0f;
     private float startY     = 0f;
 
     private android.view.ScaleGestureDetector scaleGestureDetector;
@@ -175,6 +184,12 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_accessible_material);
+
+        // Start from the reader's base pace scaled by the student's own reading-speed preference
+        // (set from Feedback). The "faster"/"slower" commands still adjust it from here.
+        appliedSpeechScale = SpeechRateManager.getScale(this);
+        appliedFontSize    = FontSizeManager.getFontSize(this);
+        speechRate = 0.85f * appliedSpeechScale;
 
         materialId     = safe(getIntent().getStringExtra("material_id"),    "");
         fileUrl        = safe(getIntent().getStringExtra("file_url"),        "");
@@ -249,7 +264,22 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     @Override
     protected void onResume() {
         super.onResume();
-        if (txtReaderContent != null && !hasIntentTextSize) applyTextSize((int) FontSizeManager.getFontSize(this), false);
+        screenPaused = false;
+
+        // Pick up a text size / reading speed the student changed elsewhere (Feedback opens from
+        // here) — otherwise this screen would keep the old values until it is opened again.
+        float fontNow = FontSizeManager.getFontSize(this);
+        if (txtReaderContent != null && (!hasIntentTextSize || fontNow != appliedFontSize)) {
+            applyTextSize((int) fontNow, false);
+        }
+        appliedFontSize = fontNow;
+
+        float scaleNow = SpeechRateManager.getScale(this);
+        if (scaleNow != appliedSpeechScale) {
+            speechRate = Math.max(0.50f, Math.min(1.50f, speechRate * scaleNow / appliedSpeechScale));
+            if (tts != null) tts.setSpeechRate(speechRate);
+            appliedSpeechScale = scaleNow;
+        }
 
         if (pausedForBackground) {
             // A read (or the "say next/repeat" prompt between paragraphs) was
@@ -268,6 +298,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     @Override
     protected void onPause() {
         super.onPause();
+        screenPaused = true;
         handler.removeCallbacks(restartListeningRunnable);
         handler.removeCallbacks(nextChunkRunnable);
         stopListeningSafe();
@@ -991,6 +1022,10 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
 
         ttsReady = true;
         tts.setPitch(1.0f);
+        // The student's chosen assistant voice: the reader can't use the Cloud voices (it needs the
+        // per-word highlighting), so this picks an installed phone voice of the same gender.
+        DeviceVoiceGuide.ensureClassified(this);
+        DeviceVoiceGuide.apply(this, tts, TtsVoiceManager.getOption(this));
         tts.setSpeechRate(speechRate);
         setupUtteranceListener();
 
@@ -1044,6 +1079,12 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
                 });
             }
 
+            @Override public void onError(String id, int errorCode) {
+                Log.e("Reader", "TTS error for utterance " + id + ", code " + errorCode);
+                if ("CHUNK".equals(id)) DeviceVoiceGuide.markProblemAndReset(tts);
+                onError(id);
+            }
+
             @Override public void onError(String id) {
                 isTtsSpeaking = false;
                 clearChunkHighlight();
@@ -1083,7 +1124,10 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     }
 
     private void speakNow(String text, String utteranceId) {
-        if (tts == null) return;
+        if (tts == null || screenPaused) {
+            Log.w("Reader", "speakNow dropped (" + (tts == null ? "no tts" : "screen paused") + "): " + text);
+            return;
+        }
         if (!ttsReady) {
             // TTS engine init (async) hasn't finished yet — queue this instead of
             // dropping it silently. onInit() flushes it once ready, so e.g. the
@@ -1221,7 +1265,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     }
 
     private void startListeningSafe() {
-        if (isListening || isTtsSpeaking) return;
+        if (isListening || isTtsSpeaking || screenPaused) return;
         if (!MicPermissionHelper.hasAudioPermission(this)) {
             setVoiceStatus("Voice: microphone permission missing");
             return;
@@ -1240,7 +1284,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     /** Cloud STT -> Vosk fallback, reached when the built-in recognizer errors,
      *  comes back empty, or isn't available on this device. */
     private void cascadeFromBuiltIn() {
-        if (isListening || isTtsSpeaking) return;
+        if (isListening || isTtsSpeaking || screenPaused) return;
         if (cascadeSession == null) { restartListeningDelayed(1000); return; }
 
         isListening = true;
@@ -1289,7 +1333,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
 
     private void startRawAndroidListening() {
         if (!recognizerReady || speechRecognizer == null || speechIntent == null) return;
-        if (isListening || isTtsSpeaking) return;
+        if (isListening || isTtsSpeaking || screenPaused) return;
         if (!MicPermissionHelper.hasAudioPermission(this)) {
             setVoiceStatus("Voice: microphone permission missing");
             return;
@@ -1326,6 +1370,7 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     }
 
     private void restartListeningDelayed(long ms) {
+        if (screenPaused) return;
         handler.removeCallbacks(restartListeningRunnable);
         handler.postDelayed(restartListeningRunnable, ms);
     }
@@ -1333,6 +1378,9 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
     private void handleCommand(String command) {
         String cmd = normalizeCommand(command);
         setVoiceStatus("Heard: " + cmd);
+        Log.d("Reader", "command \"" + cmd + "\" | loaded=" + materialLoaded + " reading=" + isReading
+                + " ttsReady=" + ttsReady + " speaking=" + isTtsSpeaking + " paused=" + screenPaused
+                + " chunk=" + currentChunkIndex + "/" + chunks.size());
 
         if (awaitingChunkDecision) {
             if (isNextCommand(cmd))        { awaitingChunkDecision = false; readNextChunk();      return; }
@@ -1343,9 +1391,12 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         }
 
         if (isInstructionCommand(cmd))  { speakInstructionsAndAsk(); return; }
+        // Feedback is checked BEFORE back: "feedback" (and the speech recognizer's "feed back")
+        // contains the word "back", so it used to be taken as "go back" and sent the student
+        // to the previous screen instead of the Feedback screen.
+        if (isFeedbackCommand(cmd))     { openFeedback();     return; }
         if (isBackCommand(cmd))         { handleBackAction();         return; }
         if (isRestartCommand(cmd))      { startReading();    return; }
-        if (isFeedbackCommand(cmd))     { openFeedback();     return; }
         // General "repeat" — works any time, not just right after a paragraph
         // finishes (that narrower case is already handled above while
         // awaitingChunkDecision). No-ops safely if nothing has been read yet.
@@ -1404,10 +1455,12 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         return c.contains("instruction") || c.contains("help") || c.contains("guide");
     }
     private boolean isBackCommand(String c) {
+        // "feedback" / "feed back" contain "back" but are not a request to go back.
+        if (isFeedbackCommand(c)) return false;
         return c.contains("back") || c.contains("return") || c.contains("balik");
     }
     private boolean isFeedbackCommand(String c) {
-        return c.contains("feedback") || c.contains("puna") || c.contains("komento");
+        return c.contains("feedback") || c.contains("feed back") || c.contains("puna") || c.contains("komento");
     }
     private boolean isIncreaseTextCommand(String c) {
         return c.contains("increase text") || c.contains("bigger text") || c.contains("larger text")
@@ -1528,7 +1581,14 @@ public class AccessibleMaterialActivity extends AppCompatActivity implements Tex
         if (tts != null) {
             tts.stop();
             tts.setSpeechRate(speechRate);
-            tts.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "CHUNK");
+            int speakResult = tts.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "CHUNK");
+            Log.d("Reader", "chunk " + lastReadChunkIndex + " speak() -> " + speakResult);
+            if (speakResult != TextToSpeech.SUCCESS) {
+                // The chosen phone voice may be unusable: fall back to the default voice and retry once,
+                // instead of leaving the reader silent.
+                DeviceVoiceGuide.markProblemAndReset(tts);
+                tts.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "CHUNK");
+            }
         }
 
         currentChunkIndex++;

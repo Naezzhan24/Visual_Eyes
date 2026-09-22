@@ -74,6 +74,50 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
+        <!-- Shown only after tapping the Yes button (not a voice "yes") — lets
+             the student type the word they read instead of needing a working
+             mic to read it aloud. -->
+        <LinearLayout
+            android:id="@+id/layoutTypedWord"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="14dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <EditText
+                android:id="@+id/edtTypedWord"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_input_maroon_soft"
+                android:hint="Type the word you read"
+                android:imeOptions="actionDone"
+                android:inputType="textNoSuggestions"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:textColor="@color/color_text_body"
+                android:textColorHint="@color/color_text_secondary"
+                android:textSize="16sp" />
+
+            <android.widget.Button
+                android:id="@+id/btnSubmitWord"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:layout_marginStart="10dp"
+                android:background="@drawable/bg_btn_login_maroon"
+                android:backgroundTint="@null"
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:text="Submit"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+        </LinearLayout>
+
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
@@ -143,11 +187,11 @@
             android:layout_height="52dp"
             android:layout_weight="1"
             android:layout_marginEnd="6dp"
-            android:background="@drawable/bg_btn_voice_soft"
+            android:background="@drawable/bg_btn_yes_blue"
             android:backgroundTint="@null"
             android:text="Yes"
             android:textAllCaps="false"
-            android:textColor="#8C4356"
+            android:textColor="#FFFFFF"
             android:textSize="15sp"
             android:textStyle="bold" />
 
@@ -157,11 +201,11 @@
             android:layout_height="52dp"
             android:layout_weight="1"
             android:layout_marginStart="6dp"
-            android:background="@drawable/bg_btn_voice_soft"
+            android:background="@drawable/bg_btn_no_yellow"
             android:backgroundTint="@null"
             android:text="No"
             android:textAllCaps="false"
-            android:textColor="#8C4356"
+            android:textColor="#1A1A1A"
             android:textSize="15sp"
             android:textStyle="bold" />
 

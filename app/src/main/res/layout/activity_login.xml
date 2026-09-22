@@ -61,7 +61,7 @@
                     android:text="@string/login_title"
                     android:textAlignment="center"
                     android:textColor="#FFFFFF"
-                    android:textSize="24sp"
+                    android:textSize="26sp"
                     android:textStyle="bold" />
 
                 <TextView
@@ -73,25 +73,24 @@
                     android:text="Sign in to continue to your accessible learning system"
                     android:textAlignment="center"
                     android:textColor="#F2DDE3"
-                    android:textSize="16sp" />
+                    android:textSize="18sp" />
 
                 <EditText
-                    android:id="@+id/etEmail"
+                    android:id="@+id/etSchoolId"
                     android:layout_width="match_parent"
                     android:layout_height="52dp"
                     android:layout_marginTop="10dp"
                     android:background="@drawable/bg_input_maroon_soft"
-                    android:drawableStart="@drawable/ic_mail"
+                    android:drawableStart="@drawable/ic_profile"
                     android:drawableTint="@color/color_text_secondary"
                     android:drawablePadding="10dp"
                     android:gravity="center_vertical"
-                    android:hint="@string/hint_email"
-                    android:inputType="textEmailAddress"
+                    android:hint="@string/hint_school_id"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
                     android:textColor="@color/color_text_body"
                     android:textColorHint="@color/color_text_secondary"
-                    android:textSize="16sp" />
+                    android:textSize="20sp" />
 
                 <RelativeLayout
                     android:layout_width="match_parent"
@@ -108,12 +107,12 @@
                         android:drawablePadding="10dp"
                         android:gravity="center_vertical"
                         android:hint="@string/hint_password"
-                        android:inputType="textPassword"
+                        android:inputType="numberPassword"
                         android:paddingStart="16dp"
                         android:paddingEnd="52dp"
                         android:textColor="@color/color_text_body"
                         android:textColorHint="@color/color_text_secondary"
-                        android:textSize="16sp" />
+                        android:textSize="20sp" />
 
                     <ImageView
                         android:id="@+id/togglePassword"
@@ -141,7 +140,7 @@
                     android:text="@string/login"
                     android:textAllCaps="false"
                     android:textColor="@color/color_text_on_primary"
-                    android:textSize="16sp"
+                    android:textSize="18sp"
                     android:textStyle="bold" />
 
                 <android.widget.Button
@@ -154,7 +153,7 @@
                     android:text="@string/voice_login"
                     android:textAllCaps="false"
                     android:textColor="@color/color_primary"
-                    android:textSize="16sp"
+                    android:textSize="18sp"
                     android:textStyle="bold" />
 
                 <LinearLayout
@@ -181,7 +180,7 @@
                         android:gravity="center"
                         android:text="@string/voice_status_off"
                         android:textColor="@color/color_text_primary"
-                        android:textSize="16sp"
+                        android:textSize="18sp"
                         android:textStyle="bold" />
                 </LinearLayout>
 
@@ -201,26 +200,7 @@
                     android:paddingBottom="8dp"
                     android:text="@string/register_prompt"
                     android:textColor="#FFFFFF"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/txtForgotPassword"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:layout_marginTop="0dp"
-                    android:minHeight="48dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:paddingStart="12dp"
-                    android:paddingTop="8dp"
-                    android:paddingEnd="12dp"
-                    android:paddingBottom="8dp"
-                    android:text="@string/forgot_password"
-                    android:textColor="#E8D3D8"
-                    android:textSize="16sp"
+                    android:textSize="18sp"
                     android:textStyle="bold" />
 
             </LinearLayout>

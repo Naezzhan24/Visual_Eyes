@@ -37,7 +37,7 @@ public class AuthManager {
     private static final String KEY_IS_LOGGED_IN = "is_logged_in";
     private static final String KEY_PROFILE_COMPLETED = "profile_completed";
 
-    private static final String KEY_REMEMBERED_EMAIL = "remembered_email";
+    private static final String KEY_REMEMBERED_SCHOOL_ID = "remembered_school_id";
     // Survives logout() on purpose: this tracks whether the app has ever been
     // opened to the Home screen on this install, not whether an account is
     // currently logged in. Fresh install -> false -> "Welcome"; every open
@@ -45,8 +45,10 @@ public class AuthManager {
     private static final String KEY_HAS_SEEN_HOME = "has_seen_home";
 
     private final SharedPreferences sharedPreferences;
+    private final Context appContext;
 
     public AuthManager(Context context) {
+        appContext = context.getApplicationContext();
         sharedPreferences = createEncryptedPrefs(context);
     }
 
@@ -95,12 +97,14 @@ public class AuthManager {
                 .putString(KEY_EMAIL, email)
                 .putString(KEY_SESSION_TOKEN, sessionToken)
                 .putBoolean(KEY_IS_LOGGED_IN, true)
-                .putString(KEY_REMEMBERED_EMAIL, email)
+                .putString(KEY_REMEMBERED_SCHOOL_ID, schoolId)
                 .apply();
+        // Per-account settings (assistant voice, reading speed) key off this.
+        AccountPrefs.setCurrentAccount(appContext, studentId);
     }
 
-    public String getRememberedEmail() {
-        return sharedPreferences.getString(KEY_REMEMBERED_EMAIL, "");
+    public String getRememberedSchoolId() {
+        return sharedPreferences.getString(KEY_REMEMBERED_SCHOOL_ID, "");
     }
 
     public String getStudentId() {
@@ -136,6 +140,8 @@ public class AuthManager {
                 .remove(KEY_SESSION_TOKEN)
                 .remove(KEY_PROFILE_COMPLETED)
                 .apply();
+        // Back to the defaults for the login screens, until the next student signs in.
+        AccountPrefs.clearCurrentAccount(appContext);
     }
 
     public String getFirstName() {
@@ -196,5 +202,6 @@ public class AuthManager {
 
     public void clearAll() {
         sharedPreferences.edit().clear().apply();
+        AccountPrefs.clearCurrentAccount(appContext);
     }
 }

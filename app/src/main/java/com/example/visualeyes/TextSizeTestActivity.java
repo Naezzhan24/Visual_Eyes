@@ -10,6 +10,7 @@ import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.util.Log;
 import android.util.TypedValue;
+import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -27,6 +28,7 @@ import org.json.JSONObject;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -35,7 +37,9 @@ import java.util.Random;
 public class TextSizeTestActivity extends AppCompatActivity {
 
     private TextView txtStep, txtInstruction, txtWord, txtStatus;
-    private Button btnStart, btnYes, btnNo;
+    private Button btnStart, btnYes, btnNo, btnSubmitWord;
+    private android.widget.LinearLayout layoutTypedWord;
+    private android.widget.EditText edtTypedWord;
 
     private GoogleTtsManager    googleTts;
     private GoogleSttManager    googleStt;
@@ -57,6 +61,12 @@ public class TextSizeTestActivity extends AppCompatActivity {
     private boolean isReadingWord            = false;
     private long    readAloudDeadlineElapsed = 0L;
     private int     readAloudAttemptId       = 0;
+
+    // True while the typed-word field is showing, waiting for the student to
+    // type back the word they read — the button-triggered "Yes" answer's
+    // verification step, in place of the voice-triggered "Yes" answer's
+    // read-aloud verification (beginReadAloudPhase()).
+    private boolean isTypingWord             = false;
 
     private final String[][] wordTiers = {
             {"cat", "dog", "sun"},
@@ -82,10 +92,21 @@ public class TextSizeTestActivity extends AppCompatActivity {
     private int yesCount  = 0;
     private int noCount   = 0;
     private int retryCount = 0;
+    private int micReconnectAttempts = 0;
 
     private final int[] readablePerSize = new int[5];
+    // Per word (same index as assignedWords / textSizes): true if the student actually
+    // read it — a "yes" that was then confirmed by reading it aloud or typing it. Passed
+    // to AssessmentResultActivity so the result screen can list every word and its outcome.
+    private final boolean[] wordRead = new boolean[5];
 
     private static final int MAX_RETRY            = 3;
+    // If the built-in recognizer keeps erroring out this many times in a row,
+    // stop retrying it and fall back to the Cloud STT/Vosk cascade instead —
+    // without this cap, a persistently broken built-in recognizer (not just a
+    // transient busy state) retried itself forever, leaving the user stuck on
+    // "Reconnecting microphone…" and never actually heard.
+    private static final int MAX_MIC_RECONNECT_ATTEMPTS = 2;
 
     private static final long NEXT_ITEM_DELAY    = 550L;
     private static final long ASK_DELAY          = 900L;
@@ -97,6 +118,13 @@ public class TextSizeTestActivity extends AppCompatActivity {
 
     private static final long READ_ALOUD_TIMEOUT_MS        = 15000L;
     private static final long READ_ALOUD_ATTEMPT_TIMEOUT_MS = 6000L;
+
+    // Spoken whenever voice input isn't working and the user needs to fall
+    // back to tapping — matches the blue/yellow button colors in
+    // activity_text_size_test.xml, a strong, distinct contrast pair that
+    // still reads apart for most forms of color vision deficiency.
+    private static final String YES_NO_BUTTON_COLOR_HINT =
+            "The blue button is Yes, and the yellow button is No.";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -112,6 +140,9 @@ public class TextSizeTestActivity extends AppCompatActivity {
         btnStart       = findViewById(R.id.btnStart);
         btnYes         = findViewById(R.id.btnYes);
         btnNo          = findViewById(R.id.btnNo);
+        layoutTypedWord= findViewById(R.id.layoutTypedWord);
+        edtTypedWord   = findViewById(R.id.edtTypedWord);
+        btnSubmitWord  = findViewById(R.id.btnSubmitWord);
 
         btnYes.setEnabled(false);
         btnNo.setEnabled(false);
@@ -144,6 +175,15 @@ public class TextSizeTestActivity extends AppCompatActivity {
         btnYes.setOnClickListener(v -> handleManualAnswer(true));
         btnNo.setOnClickListener(v  -> handleManualAnswer(false));
 
+        btnSubmitWord.setOnClickListener(v -> submitTypedWord());
+        edtTypedWord.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
+                submitTypedWord();
+                return true;
+            }
+            return false;
+        });
+
         handler.postDelayed(() -> {
             if (!hasAudioPermission()) {
                 requestAudioPermission();
@@ -164,12 +204,17 @@ public class TextSizeTestActivity extends AppCompatActivity {
 
         speechIntent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false);
         speechIntent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName());
+        // Matches the faster silence/minimum-length pacing used on
+        // Register/Feedback — the previous, longer values here forced the
+        // recognizer to keep the mic open well past when a short "yes" or a
+        // single word was actually finished, often blowing past
+        // READ_ALOUD_ATTEMPT_TIMEOUT_MS before a result ever came back.
         speechIntent.putExtra(
-                RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1800L);
+                RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L);
         speechIntent.putExtra(
-                RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1400L);
+                RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L);
         speechIntent.putExtra(
-                RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1400L);
+                RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 800L);
     }
 
     private void rebuildRecognizer() {
@@ -207,6 +252,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
         noCount  = 0;
         assignedWords = pickWordsFromTiers(activeWordTiers);
         for (int i = 0; i < readablePerSize.length; i++) readablePerSize[i] = 0;
+        java.util.Arrays.fill(wordRead, false);
 
         showCurrentItem(true);
         setStatus("Assessment is startingÃ¢Â€Â¦");
@@ -227,6 +273,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
         answerHandled    = false;
         waitingForAnswer = false;
         stopListeningSafely();
+        hideTypedWordField();
 
         setStatus("Can you read this word? Say yes or no, or tap a button.");
         speakQuestion("Can you read this word? Please say yes or no, or tap the button.");
@@ -245,8 +292,55 @@ public class TextSizeTestActivity extends AppCompatActivity {
         if (!testStarted || testFinished || answerHandled) return;
         stopListeningSafely();
         waitingForAnswer = false;
-        if (isYes) beginReadAloudPhase();
+        // A button-tapped "Yes" is verified by typing the word instead of
+        // reading it aloud — a voice-tapped "Yes" (handleVoiceAnswer) still
+        // goes through beginReadAloudPhase(), since they can just say it.
+        if (isYes) beginTypedWordPhase();
         else       recordAnswer(false);
+    }
+
+    private void beginTypedWordPhase() {
+        if (testFinished) return;
+        isTypingWord      = true;
+        answerHandled     = false;
+        waitingForAnswer  = false;
+        stopListeningSafely();
+
+        setStatus("Type the word you read, then press Submit.");
+        speakGeneral("Please type the word you read, then press Submit.");
+
+        edtTypedWord.setText("");
+        layoutTypedWord.setVisibility(View.VISIBLE);
+        edtTypedWord.requestFocus();
+    }
+
+    private void hideTypedWordField() {
+        isTypingWord = false;
+        if (layoutTypedWord != null) layoutTypedWord.setVisibility(View.GONE);
+        if (edtTypedWord != null) edtTypedWord.setText("");
+        hideKeyboard();
+    }
+
+    private void hideKeyboard() {
+        try {
+            android.view.inputmethod.InputMethodManager imm =
+                    (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null && edtTypedWord != null) imm.hideSoftInputFromWindow(edtTypedWord.getWindowToken(), 0);
+        } catch (Exception ignored) {}
+    }
+
+    private void submitTypedWord() {
+        if (!isTypingWord || testFinished || answerHandled) return;
+
+        String typed = edtTypedWord.getText().toString().trim();
+        if (typed.isEmpty()) {
+            setStatus("Please type the word first, then press Submit.");
+            return;
+        }
+
+        boolean correct = matchesTargetWord(typed);
+        hideTypedWordField();
+        recordAnswer(correct);
     }
 
     private void handleVoiceAnswer(ArrayList<String> matches) {
@@ -296,34 +390,38 @@ public class TextSizeTestActivity extends AppCompatActivity {
         final int mySession = ++voiceSessionId;
         setStatus("Listening for your reading…");
 
-        cascadeSession.cascade(this, "command", "reading the word", new SttCascadeSession.Listener() {
-            @Override public void onListeningStarted() {
-                if (mySession != voiceSessionId) return;
-                setStatus("Listening for your reading…");
-            }
+        // "word:<target>" boosts recognition toward the exact word being read
+        // instead of the "command" mode's unrelated yes/no/login/register
+        // phrase list, which was actively biasing recognition away from it.
+        cascadeSession.cascade(this, "word:" + assignedWords[currentSizeIndex], "reading the word",
+                new SttCascadeSession.Listener() {
+                    @Override public void onListeningStarted() {
+                        if (mySession != voiceSessionId) return;
+                        setStatus("Listening for your reading…");
+                    }
 
-            @Override public void onPartialResult(String partial) {
-                if (mySession != voiceSessionId || attemptId != readAloudAttemptId) return;
-                if (matchesTargetWord(partial)) { finishReadAloud(true); return; }
-                setStatus("Hearing: " + partial);
-            }
+                    @Override public void onPartialResult(String partial) {
+                        if (mySession != voiceSessionId || attemptId != readAloudAttemptId) return;
+                        if (matchesTargetWord(partial)) { finishReadAloud(true); return; }
+                        setStatus("Hearing: " + partial);
+                    }
 
-            @Override public void onTranscript(String transcript) {
-                if (mySession != voiceSessionId) return;
-                isRecognizerListening = false;
-                if (attemptId != readAloudAttemptId) return;
-                ArrayList<String> matches = new ArrayList<>();
-                matches.add(transcript);
-                handleReadAloudResult(matches);
-            }
+                    @Override public void onTranscript(String transcript) {
+                        if (mySession != voiceSessionId) return;
+                        isRecognizerListening = false;
+                        if (attemptId != readAloudAttemptId) return;
+                        ArrayList<String> matches = new ArrayList<>();
+                        matches.add(transcript);
+                        handleReadAloudResult(matches);
+                    }
 
-            @Override public void onExhausted() {
-                if (mySession != voiceSessionId) return;
-                isRecognizerListening = false;
-                if (attemptId != readAloudAttemptId) return;
-                scheduleReadAloudRetryOrFinish();
-            }
-        });
+                    @Override public void onExhausted() {
+                        if (mySession != voiceSessionId) return;
+                        isRecognizerListening = false;
+                        if (attemptId != readAloudAttemptId) return;
+                        scheduleReadAloudRetryOrFinish();
+                    }
+                });
     }
 
     private void startAndroidReadAloudListening(int attemptId) {
@@ -335,6 +433,12 @@ public class TextSizeTestActivity extends AppCompatActivity {
 
         rebuildRecognizer();
         if (speechRecognizer == null) { finishReadAloud(true); return; }
+
+        // Biases the built-in recognizer toward the exact word being read —
+        // same fix as the "word:" Cloud STT mode, applied to the primary
+        // engine this time, since it's tried first on every attempt.
+        speechIntent.putExtra(RecognizerIntent.EXTRA_BIASING_STRINGS,
+                new ArrayList<>(java.util.Collections.singletonList(assignedWords[currentSizeIndex])));
 
         try {
             isRecognizerListening = true;
@@ -389,7 +493,31 @@ public class TextSizeTestActivity extends AppCompatActivity {
         if (heard == null) return false;
         String norm   = heard.toLowerCase(Locale.US).replaceAll("[^a-z]", "").trim();
         String target = assignedWords[currentSizeIndex].toLowerCase(Locale.US).replaceAll("[^a-z]", "").trim();
-        return !norm.isEmpty() && (norm.equals(target) || norm.contains(target));
+        if (norm.isEmpty() || target.isEmpty()) return false;
+        if (norm.equals(target) || norm.contains(target)) return true;
+
+        // Tolerate a near-miss transcription (e.g. the recognizer hearing
+        // "cot" for "cat") instead of requiring a letter-perfect match — a
+        // single garbled phoneme shouldn't fail an otherwise-correct
+        // read-aloud attempt. Skipped when `norm` is shorter than the target,
+        // since that's most likely a still-in-progress partial result, not a
+        // finished (if imperfect) attempt at the whole word.
+        if (norm.length() < target.length()) return false;
+        int maxDistance = target.length() <= 4 ? 1 : 2;
+        return levenshteinDistance(norm, target) <= maxDistance;
+    }
+
+    private int levenshteinDistance(String a, String b) {
+        int[][] dp = new int[a.length() + 1][b.length() + 1];
+        for (int i = 0; i <= a.length(); i++) dp[i][0] = i;
+        for (int j = 0; j <= b.length(); j++) dp[0][j] = j;
+        for (int i = 1; i <= a.length(); i++) {
+            for (int j = 1; j <= b.length(); j++) {
+                int cost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
+                dp[i][j] = Math.min(Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1), dp[i - 1][j - 1] + cost);
+            }
+        }
+        return dp[a.length()][b.length()];
     }
 
     private void finishReadAloud(boolean success) {
@@ -406,8 +534,9 @@ public class TextSizeTestActivity extends AppCompatActivity {
         waitingForAnswer = false;
         retryCount       = 0;
         stopListeningSafely();
+        hideTypedWordField();
 
-        if (isYes) { yesCount++; readablePerSize[currentSizeIndex]++; setStatus("Saved: Yes"); }
+        if (isYes) { yesCount++; readablePerSize[currentSizeIndex]++; wordRead[currentSizeIndex] = true; setStatus("Saved: Yes"); }
         else       { noCount++;                                         setStatus("Saved: No");  }
 
         handler.postDelayed(this::moveToNextItem, NEXT_ITEM_DELAY);
@@ -421,7 +550,8 @@ public class TextSizeTestActivity extends AppCompatActivity {
 
         if (retryCount >= MAX_RETRY) {
             setStatus(message + " Please tap Yes or No to continue.");
-            speakGeneral("No clear voice detected. Please tap yes or no to continue.");
+            speakGeneral("No clear voice detected. Please tap yes or no to continue. "
+                    + YES_NO_BUTTON_COLOR_HINT);
             return;
         }
 
@@ -454,18 +584,21 @@ public class TextSizeTestActivity extends AppCompatActivity {
         btnYes.setEnabled(false);
         btnNo.setEnabled(false);
         stopListeningSafely();
+        hideTypedWordField();
 
         String recommendedSize = getRecommendedTextSize();
         String impairmentLevel = getImpairmentLevel();
 
         setStatus("Assessment complete.");
-        speakGeneral("Assessment complete. Your visual support level is " + impairmentLevel
-                + ". Recommended text size is " + recommendedSize + ".");
+        // Kept short deliberately — the full result (level, size, and how many
+        // words were readable) is read out in full on AssessmentResultActivity,
+        // which this flow lands on next. Speaking it twice would be redundant.
+        speakGeneral("Assessment complete. Let's look at your results.");
 
         handler.postDelayed(() -> {
             saveTestResult(recommendedSize, impairmentLevel);
             saveTestResultToDatabase(recommendedSize, impairmentLevel);
-        }, 3000);
+        }, 1800);
     }
 
     private void stopByVoice() {
@@ -473,6 +606,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
         waitingForAnswer = false;
         answerHandled    = true;
         stopListeningSafely();
+        hideTypedWordField();
 
         btnStart.setEnabled(true);
         btnStart.setText("Start Assessment");
@@ -529,9 +663,15 @@ public class TextSizeTestActivity extends AppCompatActivity {
     private void startAndroidVoiceRecognition() {
         if (testFinished || answerHandled) { waitingForAnswer = false; return; }
         if (isTtsSpeaking) { waitingForAnswer = false; return; }
+        // Guards every caller, not just the mic-busy retry that schedules
+        // this — a delayed retry from the yes/no question can otherwise fire
+        // after the user has already moved into the read-aloud phase and
+        // steal the mic back into yes/no-listening mode mid-reading.
+        if (isReadingWord) { waitingForAnswer = false; return; }
         if (!hasAudioPermission()) {
             waitingForAnswer = false;
             setStatus("Microphone permission not granted. Tap Yes or No.");
+            speakGeneral("Microphone permission is not granted. " + YES_NO_BUTTON_COLOR_HINT);
             return;
         }
 
@@ -540,6 +680,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
         if (speechRecognizer == null) {
             waitingForAnswer = false;
             setStatus("Speech recognizer unavailable. Tap Yes or No.");
+            speakGeneral("Voice recognition is not available on this device. " + YES_NO_BUTTON_COLOR_HINT);
             return;
         }
 
@@ -559,6 +700,12 @@ public class TextSizeTestActivity extends AppCompatActivity {
                 waitingForAnswer = false;
                 return;
             }
+            // Biases the built-in recognizer toward yes/no-type words for this
+            // attempt — same COMMAND_PHRASE_BOOST list the Cloud STT "command"
+            // mode already uses, now also applied to the primary engine.
+            speechIntent.putExtra(RecognizerIntent.EXTRA_BIASING_STRINGS,
+                    new ArrayList<>(Arrays.asList(GoogleSttManager.COMMAND_PHRASE_BOOST)));
+
             try {
                 isRecognizerListening = true;
                 speechRecognizer.startListening(speechIntent);
@@ -583,9 +730,21 @@ public class TextSizeTestActivity extends AppCompatActivity {
 
     private class AssessmentRecognitionListener implements RecognitionListener {
 
+        // Captured when this listener (and its SpeechRecognizer) is created —
+        // stopListeningSafely() bumps voiceSessionId on every phase change
+        // (e.g. yes/no answered -> read-aloud starting). A callback arriving
+        // from an older, already-superseded recognizer instance (one that was
+        // mid-teardown when the phase changed) is stale and must be ignored,
+        // instead of acting on it as if it were for the CURRENT phase — that
+        // was hijacking the read-aloud phase back into the yes/no "Reconnecting
+        // microphone…" retry loop, and the word was never actually listened for.
+        private final int mySession = voiceSessionId;
+
         @Override
         public void onReadyForSpeech(Bundle p) {
+            if (mySession != voiceSessionId) return;
             isRecognizerListening = true;
+            micReconnectAttempts = 0;
             if (isReadingWord) {
                 setStatus("Listening for your readingÃ¢Â€Â¦");
             } else {
@@ -594,12 +753,16 @@ public class TextSizeTestActivity extends AppCompatActivity {
             }
         }
 
-        @Override public void onBeginningOfSpeech() { setStatus("Hearing your voiceÃ¢Â€Â¦"); }
+        @Override public void onBeginningOfSpeech() {
+            if (mySession != voiceSessionId) return;
+            setStatus("Hearing your voiceÃ¢Â€Â¦");
+        }
         @Override public void onRmsChanged(float r)  {}
         @Override public void onBufferReceived(byte[] b) {}
 
         @Override
         public void onEndOfSpeech() {
+            if (mySession != voiceSessionId) return;
             isRecognizerListening = false;
             if (!answerHandled && !testFinished) {
                 setStatus(isReadingWord ? "Processing your readingÃ¢Â€Â¦"
@@ -609,6 +772,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
 
         @Override
         public void onError(int error) {
+            if (mySession != voiceSessionId) return;
             isRecognizerListening = false;
             waitingForAnswer      = false;
             if (testFinished || answerHandled) return;
@@ -619,26 +783,49 @@ public class TextSizeTestActivity extends AppCompatActivity {
                 case SpeechRecognizer.ERROR_CLIENT:
                 case SpeechRecognizer.ERROR_RECOGNIZER_BUSY: {
 
+                    micReconnectAttempts++;
+                    if (micReconnectAttempts > MAX_MIC_RECONNECT_ATTEMPTS) {
+                        Log.e("STT", "Built-in recognizer kept erroring (code=" + error
+                                + ") — giving up on it and falling back to the cascade.");
+                        SpeechEngineHealth.markBuiltInRecognizerBroken(TextSizeTestActivity.this);
+                        micReconnectAttempts = 0;
+                        destroyRecognizer();
+                        cascadeYesNo();
+                        return;
+                    }
+
                     destroyRecognizer();
                     handler.postDelayed(() -> {
-                        if (!testFinished && !answerHandled && !isTtsSpeaking) {
+                        // mySession guard here too — this retry was scheduled
+                        // for the yes/no question, but by the time it actually
+                        // fires (~1s later) the user may have already answered
+                        // "yes" and moved into the read-aloud phase. Without
+                        // this check, the retry would barge back in and steal
+                        // the mic into yes/no-listening mode right as they're
+                        // reading the word, which is what made it look like the
+                        // read-aloud phase itself was stuck reconnecting.
+                        if (mySession == voiceSessionId && !isReadingWord
+                                && !testFinished && !answerHandled && !isTtsSpeaking) {
                             handler.postDelayed(TextSizeTestActivity.this::startAndroidVoiceRecognition, MIC_BUSY_RETRY_DELAY_MS);
                         }
                     }, RECOGNIZER_REBUILD_DELAY);
-                    setStatus("Reconnecting microphoneÃ¢Â€Â¦");
+                    setStatus("Reconnecting microphone…");
                     return;
                 }
                 case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS: {
                     setStatus("Microphone permission missing. Tap Yes or No.");
+                    speakGeneral("Microphone permission is missing. " + YES_NO_BUTTON_COLOR_HINT);
                     return;
                 }
                 case SpeechRecognizer.ERROR_NO_MATCH:
                 case SpeechRecognizer.ERROR_SPEECH_TIMEOUT: {
 
+                    micReconnectAttempts = 0;
                     cascadeYesNo();
                     return;
                 }
                 default: {
+                    micReconnectAttempts = 0;
                     cascadeYesNo();
                 }
             }
@@ -646,6 +833,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
 
         @Override
         public void onResults(Bundle results) {
+            if (mySession != voiceSessionId) return;
             isRecognizerListening = false;
             waitingForAnswer      = false;
             if (testFinished || answerHandled) return;
@@ -659,6 +847,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
 
         @Override
         public void onPartialResults(Bundle partial) {
+            if (mySession != voiceSessionId) return;
             if (testFinished || answerHandled) return;
 
             ArrayList<String> p =
@@ -803,10 +992,13 @@ public class TextSizeTestActivity extends AppCompatActivity {
         String      sessionToken = auth.getSessionToken();
 
         if (sessionToken == null || sessionToken.trim().isEmpty()) {
+            Log.e("Assessment", "No session token found in AuthManager — skipping server save. "
+                    + "studentId=" + auth.getStudentId() + " isLoggedIn=" + auth.isLoggedIn());
             Toast.makeText(this, "Student session not found. Saved locally only.", Toast.LENGTH_LONG).show();
             goToNextScreen();
             return;
         }
+        Log.d("Assessment", "Saving assessment via student_save_assessment for studentId=" + auth.getStudentId());
 
         JSONObject body = new JSONObject();
         try {
@@ -829,11 +1021,13 @@ public class TextSizeTestActivity extends AppCompatActivity {
 
         StringRequest req = new StringRequest(Request.Method.POST, url,
                 response -> {
+                    Log.d("Assessment", "student_save_assessment succeeded: " + response);
                     Toast.makeText(this, "Assessment saved.", Toast.LENGTH_SHORT).show();
                     goToNextScreen();
                 },
                 error -> {
                     if (SessionManager.isSessionExpiredError(error)) {
+                        Log.e("Assessment", "student_save_assessment: session expired, forcing logout.");
                         SessionManager.forceLogoutAndRedirect(this);
                         return;
                     }
@@ -843,6 +1037,8 @@ public class TextSizeTestActivity extends AppCompatActivity {
                     } else if (error.getMessage() != null) {
                         msg = "Save failed: " + error.getMessage();
                     }
+                    Log.e("Assessment", "student_save_assessment failed (status "
+                            + (error.networkResponse != null ? error.networkResponse.statusCode : -1) + "): " + msg);
                     Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
                     goToNextScreen();
                 }
@@ -865,8 +1061,16 @@ public class TextSizeTestActivity extends AppCompatActivity {
 
     private void goToNextScreen() {
         try {
-            Class<?> target = isRetakeAssessment ? ProfileActivity.class : HomeActivity.class;
-            startActivity(new Intent(this, target));
+            Intent intent = new Intent(this, AssessmentResultActivity.class);
+            intent.putExtra("impairmentLevel",    getImpairmentLevel());
+            intent.putExtra("recommendedTextSize", getRecommendedTextSize());
+            intent.putExtra("yesCount",            yesCount);
+            intent.putExtra("totalItems",          textSizes.length);
+            intent.putExtra("isRetakeAssessment",  isRetakeAssessment);
+            intent.putExtra("words",     assignedWords);
+            intent.putExtra("wordRead",  wordRead);
+            intent.putExtra("wordSizes", textSizes);
+            startActivity(intent);
             finish();
         } catch (Exception e) {
             Toast.makeText(this, "Failed to open next screen.", Toast.LENGTH_LONG).show();
@@ -887,7 +1091,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
                 if (!granted) {
                     Toast.makeText(this,
-                            "Microphone denied. You can still use the Yes/No buttons.",
+                            "Microphone denied. The blue button is Yes, the yellow button is No.",
                             Toast.LENGTH_SHORT).show();
                 }
                 startAssessment();
@@ -912,7 +1116,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
         setStatus("Microphone permission blocked.");
         googleTts.speak("Microphone access was previously denied and can't be requested again here. " +
                 "Opening app settings so you can enable it under Permissions. " +
-                "You can still use the Yes or No buttons for this assessment.", () -> {
+                "You can still use the Yes or No buttons for this assessment. " + YES_NO_BUTTON_COLOR_HINT, () -> {
             MicPermissionHelper.openAppSettings(this);
             startAssessment();
         });

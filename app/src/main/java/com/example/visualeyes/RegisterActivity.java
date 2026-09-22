@@ -14,7 +14,6 @@ import android.os.Vibrator;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
-import android.text.InputType;
 import android.util.Log;
 import android.util.Patterns;
 import android.view.MotionEvent;
@@ -25,7 +24,6 @@ import android.view.animation.OvershootInterpolator;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
-import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -39,6 +37,7 @@ import com.visualed.voice.NameNormalizer;
 import com.android.volley.DefaultRetryPolicy;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
+import com.android.volley.toolbox.JsonArrayRequest;
 import com.android.volley.toolbox.StringRequest;
 
 import org.json.JSONObject;
@@ -53,16 +52,10 @@ import java.util.Map;
 public class RegisterActivity extends AppCompatActivity {
 
     private ScrollView registerScrollView;
-    private EditText fname, mname, lname, age, yearLevel, schoolid, email, password, confirmPassword;
-    private Button continueBtn, voiceRegisterBtn;
+    private EditText fname, mname, lname, birthdate, yearLevel, schoolid, email, section;
+    private Button continueBtn, voiceRegisterBtn, checkSchoolIdBtn;
     private TextView txtVoiceStatus;
-    private TextView txtPrivacyNotice;
-    private LinearLayout optionAgreePrivacy;
-    private androidx.appcompat.widget.SwitchCompat switchAgreePrivacy;
     private ImageView logoImage;
-    private ImageView togglePassword1, togglePassword2;
-    private boolean isPassword1Visible = false;
-    private boolean isPassword2Visible = false;
 
     private GoogleTtsManager googleTts;
 
@@ -86,6 +79,19 @@ public class RegisterActivity extends AppCompatActivity {
     private boolean isListening             = false;
     private boolean isConfirmingField       = false;
     private boolean isAdvancingField        = false;
+    // Set while reading back the full details summary at the end of voice
+    // registration (either after the School ID auto-check autofills
+    // everything, or after all fields were collected one by one) and
+    // waiting for a final "is this all correct?" yes/no.
+    private boolean isAwaitingFinalReviewConfirm = false;
+    // The student said "no" at the final review: is it the School ID itself that's wrong
+    // (say it again) or just some detail (edit it manually)?
+    private boolean isAwaitingWrongIdConfirm = false;
+    // The School ID wasn't on the enrollment list: say it again, or continue by voice anyway?
+    private boolean isAwaitingIdRetryConfirm = false;
+    // The form fields were autofilled from the enrollment record of the spoken School ID, so if
+    // that ID turns out to be wrong those details belong to someone else and must be cleared.
+    private boolean detailsFromIdLookup      = false;
     private boolean hasProcessedSpeech      = false;
     private String  pendingValue            = "";
     private String  latestPartialText       = "";
@@ -94,8 +100,6 @@ public class RegisterActivity extends AppCompatActivity {
     private boolean isAwaitingLetterPosition  = false;
     private boolean isAwaitingLetterValue     = false;
     private int     correctingLetterPosition  = 0;
-
-    private boolean isAwaitingPrivacyAgreement = false;
 
     private static final int MAX_RETRY      = 4;
 
@@ -192,12 +196,15 @@ public class RegisterActivity extends AppCompatActivity {
 
         bindViews();
 
+        // School ID is asked first — voice registration now confirms it, then
+        // auto-checks the official enrollment list and autofills the rest
+        // before falling back to asking remaining fields one by one.
         voiceFields = new EditText[]{
-                fname, mname, lname, age, yearLevel, schoolid, email, password, confirmPassword
+                schoolid, fname, mname, lname, birthdate, yearLevel, email, section
         };
 
         setupAutoScrollForTyping();
-        setupPasswordToggles();
+        setupBirthdatePicker();
         buildSpeechIntent();
         setupGestures();
         updateVoiceStatus("Ready.");
@@ -206,6 +213,7 @@ public class RegisterActivity extends AppCompatActivity {
 
         UiAnim.attachPressFeedback(continueBtn);
         UiAnim.attachPressFeedback(voiceRegisterBtn);
+        UiAnim.attachPressFeedback(checkSchoolIdBtn);
 
         handler.postDelayed(() -> {
             if (autoStartVoice) {
@@ -226,8 +234,7 @@ public class RegisterActivity extends AppCompatActivity {
                 });
             } else {
                 lastSpokenInstruction = "Student registration. You may fill in the fields manually, " +
-                        "or press the Voice Register button to fill each field by voice. " +
-                        "Before continuing, you must agree to the Privacy Policy using the switch above the Continue button.";
+                        "or press the Voice Register button to fill each field by voice.";
                 say(lastSpokenInstruction, null);
             }
         }, 800);
@@ -250,17 +257,10 @@ public class RegisterActivity extends AppCompatActivity {
             }
         });
 
-        if (txtPrivacyNotice != null) {
-            txtPrivacyNotice.setOnClickListener(v ->
-                    startActivity(new Intent(RegisterActivity.this, PrivacyPolicyActivity.class)));
-        }
-
-        if (optionAgreePrivacy != null && switchAgreePrivacy != null) {
-            optionAgreePrivacy.setOnClickListener(v -> {
-                animateClick(optionAgreePrivacy);
-                switchAgreePrivacy.toggle();
-            });
-        }
+        checkSchoolIdBtn.setOnClickListener(v -> {
+            animateClick(v);
+            checkSchoolIdDetails();
+        });
     }
 
     private void bindViews() {
@@ -269,50 +269,16 @@ public class RegisterActivity extends AppCompatActivity {
         fname           = findViewById(R.id.fname);
         mname           = findViewById(R.id.mname);
         lname           = findViewById(R.id.lname);
-        age             = findViewById(R.id.age);
+        birthdate       = findViewById(R.id.birthdate);
         yearLevel       = findViewById(R.id.yearLevel);
+        section         = findViewById(R.id.section);
         schoolid        = findViewById(R.id.schoolid);
         email           = findViewById(R.id.email);
-        password        = findViewById(R.id.password);
-        confirmPassword = findViewById(R.id.confirmPassword);
         continueBtn     = findViewById(R.id.continueBtn);
-        txtPrivacyNotice= findViewById(R.id.txtPrivacyNotice);
-        optionAgreePrivacy = findViewById(R.id.optionAgreePrivacy);
-        switchAgreePrivacy = findViewById(R.id.switchAgreePrivacy);
         voiceRegisterBtn= findViewById(R.id.voiceRegisterBtn);
+        checkSchoolIdBtn= findViewById(R.id.checkSchoolIdBtn);
         txtVoiceStatus  = findViewById(R.id.txtVoiceStatus);
         logoImage       = findViewById(R.id.logoImage);
-        togglePassword1 = findViewById(R.id.togglePassword1);
-        togglePassword2 = findViewById(R.id.togglePassword2);
-    }
-
-    private void setupPasswordToggles() {
-        if (togglePassword1 != null) {
-            togglePassword1.setOnClickListener(v -> {
-                isPassword1Visible = !isPassword1Visible;
-                password.setInputType(isPassword1Visible
-                        ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-                        : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-                password.setSelection(password.getText().length());
-                togglePassword1.setImageResource(isPassword1Visible
-                        ? R.drawable.ic_eye_open : R.drawable.ic_eye_closed);
-                animateClick(togglePassword1);
-            });
-            UiAnim.attachPressFeedback(togglePassword1);
-        }
-        if (togglePassword2 != null) {
-            togglePassword2.setOnClickListener(v -> {
-                isPassword2Visible = !isPassword2Visible;
-                confirmPassword.setInputType(isPassword2Visible
-                        ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-                        : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-                confirmPassword.setSelection(confirmPassword.getText().length());
-                togglePassword2.setImageResource(isPassword2Visible
-                        ? R.drawable.ic_eye_open : R.drawable.ic_eye_closed);
-                animateClick(togglePassword2);
-            });
-            UiAnim.attachPressFeedback(togglePassword2);
-        }
     }
 
     private void buildSpeechIntent() {
@@ -411,7 +377,8 @@ public class RegisterActivity extends AppCompatActivity {
         pendingValue      = "";
         isAwaitingLetterPosition  = false;
         isAwaitingLetterValue     = false;
-        isAwaitingPrivacyAgreement = false;
+        isAwaitingWrongIdConfirm  = false;
+        isAwaitingIdRetryConfirm  = false;
         currentFieldIndex = findFirstEmptyFieldIndex();
 
         if (currentFieldIndex >= voiceFields.length) {
@@ -433,7 +400,7 @@ public class RegisterActivity extends AppCompatActivity {
         skipFilledFields();
 
         if (currentFieldIndex >= voiceFields.length) {
-            promptPrivacyAgreement();
+            finishVoiceRegistration();
             return;
         }
 
@@ -465,12 +432,10 @@ public class RegisterActivity extends AppCompatActivity {
 
     private String sttModeForField(int index) {
         switch (index) {
-            case 0:
             case 1:
-            case 2: return "name";
+            case 2:
+            case 3: return "name";
             case 6: return "email";
-            case 7:
-            case 8: return "password";
             default: return "command";
         }
     }
@@ -659,7 +624,8 @@ public class RegisterActivity extends AppCompatActivity {
         // ("letter 1", "double L") rather than an actual name — using the
         // name field's mode here would keep Cloud STT's name-phrase boost
         // active and bias it away from correctly hearing that instruction.
-        String mode = (isAwaitingLetterPosition || isAwaitingLetterValue)
+        String mode = (isAwaitingLetterPosition || isAwaitingLetterValue
+                || isAwaitingWrongIdConfirm || isAwaitingIdRetryConfirm)
                 ? "command" : sttModeForField(currentFieldIndex);
         cascadeSession.cascade(this, mode, getFieldName(currentFieldIndex), new SttCascadeSession.Listener() {
             @Override public void onListeningStarted() {
@@ -716,11 +682,22 @@ public class RegisterActivity extends AppCompatActivity {
             say(lastSpokenInstruction, this::startVoiceInput);
         } else {
             retryCount = 0;
+            boolean wasFinalReview = isAwaitingFinalReviewConfirm;
             isVoiceMode = false;
-            lastSpokenInstruction = "I am having trouble hearing you. " +
-                    "You may type this field manually, then press Voice Register to continue.";
+            isAwaitingFinalReviewConfirm = false;
+            wasFinalReview = wasFinalReview || isAwaitingWrongIdConfirm;
+            isAwaitingWrongIdConfirm = false;
+            isAwaitingIdRetryConfirm = false;
+            if (wasFinalReview) {
+                lastSpokenInstruction = "I am having trouble hearing you. " +
+                        "Please review your details above, then press Continue when you're ready.";
+                updateVoiceStatus("Please review, then press Continue.");
+            } else {
+                lastSpokenInstruction = "I am having trouble hearing you. " +
+                        "You may type this field manually, then press Voice Register to continue.";
+                updateVoiceStatus("Please type manually or press Voice Register again.");
+            }
             say(lastSpokenInstruction, null);
-            updateVoiceStatus("Please type manually or press Voice Register again.");
         }
     }
 
@@ -733,11 +710,101 @@ public class RegisterActivity extends AppCompatActivity {
             isVoiceMode = false;
             isAwaitingLetterPosition  = false;
             isAwaitingLetterValue     = false;
-            isAwaitingPrivacyAgreement = false;
             stopListeningSafely();
             lastSpokenInstruction = "Voice registration cancelled.";
             say(lastSpokenInstruction, null);
             updateVoiceStatus("Voice registration cancelled.");
+            return;
+        }
+
+        if (isAwaitingFinalReviewConfirm) {
+            if (isYes(lower)) {
+                isAwaitingFinalReviewConfirm = false;
+                isVoiceMode = false;
+                retryCount  = 0;
+                stopListeningSafely();
+                lastSpokenInstruction = "Great. Submitting your registration now.";
+                say(lastSpokenInstruction, this::validateAndContinue);
+            } else if (isNo(lower)) {
+                // Something is wrong — first find out whether it's the School ID itself.
+                isAwaitingFinalReviewConfirm = false;
+                isAwaitingWrongIdConfirm     = true;
+                retryCount = 0;
+                updateVoiceStatus("Is the School ID wrong?");
+                lastSpokenInstruction = "Is your School ID the one that is wrong? " +
+                        "Say yes to say your School ID again, or no to fix the other details yourself.";
+                say(lastSpokenInstruction, this::startVoiceInput);
+            } else {
+                retryCount++;
+                if (retryCount <= MAX_RETRY) {
+                    lastSpokenInstruction = "Please say yes to continue or no to make changes.";
+                    say(lastSpokenInstruction, this::startVoiceInput);
+                } else {
+                    isAwaitingFinalReviewConfirm = false;
+                    isVoiceMode = false;
+                    retryCount  = 0;
+                    lastSpokenInstruction = "Let's continue manually. Please review the fields, then press Continue.";
+                    say(lastSpokenInstruction, null);
+                    updateVoiceStatus("Please review manually, then press Continue.");
+                }
+            }
+            return;
+        }
+
+        if (isAwaitingWrongIdConfirm) {
+            if (isYes(lower)) {
+                isAwaitingWrongIdConfirm = false;
+                retryCount = 0;
+                reaskSchoolId("Okay, let's do your School ID again.");
+            } else if (isNo(lower)) {
+                isAwaitingWrongIdConfirm = false;
+                isVoiceMode = false;
+                retryCount  = 0;
+                stopListeningSafely();
+                lastSpokenInstruction = "Okay, please review and edit the fields manually, " +
+                        "then press Continue when you're ready.";
+                say(lastSpokenInstruction, null);
+                updateVoiceStatus("Please edit manually, then press Continue.");
+            } else {
+                retryCount++;
+                if (retryCount <= MAX_RETRY) {
+                    lastSpokenInstruction = "Please say yes to say your School ID again, or no to fix the details yourself.";
+                    say(lastSpokenInstruction, this::startVoiceInput);
+                } else {
+                    isAwaitingWrongIdConfirm = false;
+                    isVoiceMode = false;
+                    retryCount  = 0;
+                    lastSpokenInstruction = "Let's continue manually. Please review the fields, then press Continue.";
+                    say(lastSpokenInstruction, null);
+                    updateVoiceStatus("Please review manually, then press Continue.");
+                }
+            }
+            return;
+        }
+
+        if (isAwaitingIdRetryConfirm) {
+            if (isYes(lower)) {
+                isAwaitingIdRetryConfirm = false;
+                retryCount = 0;
+                reaskSchoolId("Okay, please say your School ID again.");
+            } else if (isNo(lower)) {
+                isAwaitingIdRetryConfirm = false;
+                retryCount = 0;
+                updateVoiceStatus("Continuing by voice...");
+                lastSpokenInstruction = "Okay, let's continue by voice for the rest of your details.";
+                say(lastSpokenInstruction, () -> handler.postDelayed(this::promptCurrentField, 400));
+            } else {
+                retryCount++;
+                if (retryCount <= MAX_RETRY) {
+                    lastSpokenInstruction = "Please say yes to say your School ID again, or no to continue.";
+                    say(lastSpokenInstruction, this::startVoiceInput);
+                } else {
+                    isAwaitingIdRetryConfirm = false;
+                    retryCount = 0;
+                    lastSpokenInstruction = "Let's continue by voice for the rest of your details.";
+                    say(lastSpokenInstruction, () -> handler.postDelayed(this::promptCurrentField, 400));
+                }
+            }
             return;
         }
 
@@ -751,11 +818,6 @@ public class RegisterActivity extends AppCompatActivity {
             return;
         }
 
-        if (isAwaitingPrivacyAgreement) {
-            handlePrivacyAgreementResponse(lower);
-            return;
-        }
-
         if (isConfirmingField) {
             if (isYes(lower)) {
 
@@ -763,6 +825,7 @@ public class RegisterActivity extends AppCompatActivity {
                 retryCount         = 0;
                 EditText field     = voiceFields[currentFieldIndex];
                 String processed   = processVoiceInput(pendingValue);
+                boolean wasSchoolIdField = (currentFieldIndex == 0);
 
                 runOnUiThread(() -> {
                     field.requestFocus();
@@ -774,10 +837,17 @@ public class RegisterActivity extends AppCompatActivity {
 
                 isAdvancingField = true;
                 currentFieldIndex++;
-                handler.postDelayed(() -> {
-                    isAdvancingField = false;
-                    promptCurrentField();
-                }, 600);
+                if (wasSchoolIdField) {
+                    handler.postDelayed(() -> {
+                        isAdvancingField = false;
+                        autoCheckSchoolIdForVoice();
+                    }, 500);
+                } else {
+                    handler.postDelayed(() -> {
+                        isAdvancingField = false;
+                        promptCurrentField();
+                    }, 600);
+                }
 
             } else if (isNo(lower)) {
 
@@ -810,10 +880,11 @@ public class RegisterActivity extends AppCompatActivity {
             return;
         }
 
-        if (isSkipCommand(lower) && currentFieldIndex == 1) {
+        if (isSkipCommand(lower) && (currentFieldIndex == 2 || currentFieldIndex == 7)) {
+            String skippedFieldName = currentFieldIndex == 2 ? "Middle name" : "Section";
             isAdvancingField = true;
             currentFieldIndex++;
-            lastSpokenInstruction = "Middle name skipped.";
+            lastSpokenInstruction = skippedFieldName + " skipped.";
             say(lastSpokenInstruction, () -> handler.postDelayed(() -> {
                 isAdvancingField = false;
                 promptCurrentField();
@@ -837,88 +908,47 @@ public class RegisterActivity extends AppCompatActivity {
         if (nameNormalizer == null) return spoken;
         NameNormalizer.FieldType type;
         switch (currentFieldIndex) {
-            case 0: type = NameNormalizer.FieldType.FIRST_NAME; break;
-            case 1:
-            case 2: type = NameNormalizer.FieldType.LAST_NAME; break;
+            case 1: type = NameNormalizer.FieldType.FIRST_NAME; break;
+            case 2:
+            case 3: type = NameNormalizer.FieldType.LAST_NAME; break;
             default: return spoken;
         }
         return nameNormalizer.normalize(spoken, type).getText();
     }
 
-    private void promptPrivacyAgreement() {
-        if (!isVoiceMode) return;
-        isAwaitingPrivacyAgreement = true;
-        retryCount         = 0;
-        hasProcessedSpeech = false;
-        latestPartialText  = "";
-
-        updateVoiceStatus("Do you agree to the Privacy Policy?");
-        lastSpokenInstruction = "Last step. Do you agree to the Privacy Policy? Say yes to agree and continue, " +
-                "or no if you'd like to read it first.";
-        say(lastSpokenInstruction, this::startVoiceInput);
-    }
-
-    private void handlePrivacyAgreementResponse(String lower) {
-        if (isYes(lower)) {
-            isAwaitingPrivacyAgreement = false;
-            retryCount = 0;
-            if (switchAgreePrivacy != null) {
-                runOnUiThread(() -> switchAgreePrivacy.setChecked(true));
-            }
-            updateVoiceStatus("Privacy Policy agreed.");
-            finishVoiceRegistration();
-
-        } else if (isNo(lower)) {
-            isAwaitingPrivacyAgreement = false;
-            retryCount  = 0;
-            isVoiceMode = false;
-            stopListeningSafely();
-            if (switchAgreePrivacy != null) {
-                runOnUiThread(() -> switchAgreePrivacy.setChecked(false));
-            }
-            lastSpokenInstruction = "Okay, I won't submit yet. Tap Read the full Privacy Policy to review it, " +
-                    "then tap the switch above the Continue button and press Continue when you're ready.";
-            say(lastSpokenInstruction, null);
-            updateVoiceStatus("Please review the Privacy Policy, then tap Continue.");
-
-        } else {
-            retryCount++;
-            if (retryCount <= MAX_RETRY) {
-                lastSpokenInstruction = "Please say yes to agree, or no if you want to read it first.";
-                say(lastSpokenInstruction, this::startVoiceInput);
-            } else {
-                retryCount = 0;
-                isAwaitingPrivacyAgreement = false;
-                isVoiceMode = false;
-                stopListeningSafely();
-                lastSpokenInstruction = "Let's pause here. Use the switch above the Continue button to agree to " +
-                        "the Privacy Policy, then press Continue.";
-                say(lastSpokenInstruction, null);
-            }
-        }
-    }
-
     private void finishVoiceRegistration() {
-        isVoiceMode       = false;
         isConfirmingField = false;
-        updateVoiceStatus("Reviewing your details...");
         Toast.makeText(this, "Voice registration completed.", Toast.LENGTH_SHORT).show();
-
-        lastSpokenInstruction = buildDetailsSummary();
-        say(lastSpokenInstruction, () -> {
-            stopListeningSafely();
-            validateAndContinue();
-        });
+        presentFinalReviewAndConfirm();
     }
 
     /**
-     * Every field here was already confirmed individually as it was collected
-     * (each has its own "is that correct?" step) — this is a final read-back of
-     * name through email before auto-continuing, not another confirmation gate.
-     * Password fields are intentionally excluded.
+     * Reads back everything collected so far and waits for an explicit
+     * "is this correct?" yes/no before submitting — reached either after the
+     * School ID auto-check autofills the form, or after all fields were
+     * collected one by one.
      */
+    private void presentFinalReviewAndConfirm() {
+        isAwaitingFinalReviewConfirm = true;
+        isConfirmingField = false;
+        retryCount = 0;
+        updateVoiceStatus("Reviewing your details...");
+        lastSpokenInstruction = buildDetailsSummary();
+        say(lastSpokenInstruction, this::startVoiceInput);
+    }
+
+    /** Every field here was already confirmed individually as it was collected
+     *  (each has its own "is that correct?" step) — this is a final read-back
+     *  of everything before asking the single "is this all correct?" gate. */
     private String buildDetailsSummary() {
-        StringBuilder sb = new StringBuilder("Here is a summary of your details before I continue. ");
+        return "Here is a summary of your details. " + buildReviewSummaryText()
+                + "Is all of this correct? Say yes to continue, or no to fix something.";
+    }
+
+    /** Shared field read-back used by both the voice-flow final review and the
+     *  manual "Check School ID" button's review (reviewLoadedDetails()). */
+    private String buildReviewSummaryText() {
+        StringBuilder sb = new StringBuilder();
 
         sb.append("First name: ").append(fname.getText().toString().trim()).append(". ");
 
@@ -926,15 +956,117 @@ public class RegisterActivity extends AppCompatActivity {
         if (!middle.isEmpty()) sb.append("Middle name: ").append(middle).append(". ");
 
         sb.append("Last name: ").append(lname.getText().toString().trim()).append(". ");
-        sb.append("Age: ").append(age.getText().toString().trim()).append(". ");
+        sb.append("Birthdate: ").append(birthdate.getText().toString().trim()).append(". ");
         sb.append("Year level: ").append(yearLevel.getText().toString().trim()).append(". ");
         sb.append("School ID: ")
                 .append(NumberSpeechFormatter.spellDigits(schoolid.getText().toString().trim()))
                 .append(". ");
         sb.append("Email: ").append(email.getText().toString().trim()).append(". ");
 
-        sb.append("Proceeding to submit your registration for approval.");
+        String sectionVal = section.getText().toString().trim();
+        if (!sectionVal.isEmpty()) sb.append("Section: ").append(sectionVal).append(". ");
+
         return sb.toString();
+    }
+
+    /** Starts over from the School ID question. Details that were autofilled from the wrong ID's
+     *  enrollment record are cleared, since they belong to someone else. */
+    private void reaskSchoolId(String intro) {
+        runOnUiThread(() -> {
+            schoolid.setText("");
+            if (detailsFromIdLookup) {
+                fname.setText(""); mname.setText(""); lname.setText("");
+                birthdate.setText(""); yearLevel.setText(""); email.setText(""); section.setText("");
+            }
+            detailsFromIdLookup = false;
+        });
+        currentFieldIndex = 0;
+        pendingValue      = "";
+        isConfirmingField = false;
+        isAdvancingField  = false;
+        lastSpokenInstruction = intro;
+        say(lastSpokenInstruction, () -> handler.postDelayed(this::promptCurrentField, 400));
+    }
+
+    /** Runs right after the user confirms their spoken School ID — checks the
+     *  school's official enrollment list and autofills the rest of the form
+     *  when a match is found, instead of asking every remaining field by voice. */
+    private void autoCheckSchoolIdForVoice() {
+        if (!isVoiceMode) return;
+        String schoolId = schoolid.getText().toString().trim();
+        if (schoolId.isEmpty()) { promptCurrentField(); return; }
+
+        checkSchoolIdBtn.setEnabled(false);
+        updateVoiceStatus("Checking your School ID...");
+        lastSpokenInstruction = "Thanks. Let me check if you're already on the school's enrollment list.";
+        say(lastSpokenInstruction, () -> {
+            JSONObject jsonBody = new JSONObject();
+            String bodyStr;
+            try {
+                jsonBody.put("p_school_id", schoolId);
+                bodyStr = jsonBody.toString();
+            } catch (Exception e) {
+                continueVoiceRegistrationAfterCheck(false);
+                return;
+            }
+            final String finalBodyStr = bodyStr;
+
+            String url = ApiConfig.SUPABASE_URL + "/rest/v1/rpc/get_enrolled_student_by_school_id";
+
+            JsonArrayRequest request = new JsonArrayRequest(Request.Method.POST, url, null,
+                    response -> {
+                        boolean found = false;
+                        if (response != null && response.length() > 0) {
+                            try {
+                                JSONObject s = response.getJSONObject(0);
+                                fname.setText(s.optString("first_name", ""));
+                                mname.setText(s.optString("middle_name", ""));
+                                lname.setText(s.optString("last_name", ""));
+                                birthdate.setText(s.optString("birthdate", ""));
+                                yearLevel.setText(s.optString("year_level", ""));
+                                email.setText(s.optString("email", ""));
+                                section.setText(s.optString("section", ""));
+                                detailsFromIdLookup = true;
+                                found = true;
+                            } catch (Exception ignored) {}
+                        }
+                        continueVoiceRegistrationAfterCheck(found);
+                    },
+                    error -> continueVoiceRegistrationAfterCheck(false)
+            ) {
+                @Override public byte[]              getBody()            { return finalBodyStr.getBytes(StandardCharsets.UTF_8); }
+                @Override public String              getBodyContentType() { return "application/json; charset=utf-8"; }
+                @Override public Map<String, String> getHeaders() {
+                    Map<String, String> headers = new HashMap<>();
+                    headers.put("apikey",        ApiConfig.SUPABASE_KEY);
+                    headers.put("Authorization", "Bearer " + ApiConfig.SUPABASE_KEY);
+                    headers.put("Content-Type",  "application/json");
+                    headers.put("Accept",        "application/json");
+                    return headers;
+                }
+            };
+
+            request.setRetryPolicy(new DefaultRetryPolicy(15000, 1, 1.0f));
+            requestQueue.add(request);
+        });
+    }
+
+    private void continueVoiceRegistrationAfterCheck(boolean found) {
+        checkSchoolIdBtn.setEnabled(true);
+        if (!isVoiceMode) return;
+
+        if (found) {
+            updateVoiceStatus("Details loaded. Reviewing...");
+            presentFinalReviewAndConfirm();
+        } else {
+            // Could be a misheard or mistyped ID, so offer to say it again before carrying on.
+            updateVoiceStatus("No record found for this School ID.");
+            isAwaitingIdRetryConfirm = true;
+            retryCount = 0;
+            lastSpokenInstruction = "I could not find this School ID on the enrollment list. " +
+                    "Do you want to say your School ID again? Say yes to try again, or no to continue by voice.";
+            say(lastSpokenInstruction, this::startVoiceInput);
+        }
     }
 
     private boolean isYes(String text) {
@@ -998,45 +1130,42 @@ public class RegisterActivity extends AppCompatActivity {
 
     private String getPromptForField(int index) {
         switch (index) {
-            case 0: return "Please say your first name.";
-            case 1: return "Please say your middle name, or say skip to leave it blank.";
-            case 2: return "Please say your last name.";
-            case 3: return "Please say your age as a number.";
-            case 4: return "Please say your year level. For example, first year, second year, third year, or fourth year.";
-            case 5: return "Please say your school ID number.";
+            case 0: return "Please say your school ID number.";
+            case 1: return "Please say your first name.";
+            case 2: return "Please say your middle name, or say skip to leave it blank.";
+            case 3: return "Please say your last name.";
+            case 4: return "Please say your birthdate, including the month, day, and year. " +
+                    "For example, January 15, 2005.";
+            case 5: return "Please say your year level. For example, first year, second year, third year, or fourth year.";
             case 6: return "Please say your email address. Say at for the at symbol, and dot for the period.";
-            case 7: return "Please say your password. It must be at least 6 characters.";
-            case 8: return "Please confirm your password by saying it again.";
+            case 7: return "Please say your section, or say skip if you're not sure.";
             default: return "Please speak now.";
         }
     }
 
     private String getFieldName(int index) {
         switch (index) {
-            case 0: return "First Name";
-            case 1: return "Middle Name";
-            case 2: return "Last Name";
-            case 3: return "Age";
-            case 4: return "Year Level";
-            case 5: return "School ID";
+            case 0: return "School ID";
+            case 1: return "First Name";
+            case 2: return "Middle Name";
+            case 3: return "Last Name";
+            case 4: return "Birthdate";
+            case 5: return "Year Level";
             case 6: return "Email";
-            case 7: return "Password";
-            case 8: return "Confirm Password";
+            case 7: return "Section";
             default: return "Field";
         }
     }
 
     private String buildConfirmMessage(int index, String value) {
         switch (index) {
-            case 0: return "I heard " + spellOut(value) + ", " + value + ", as your first name. Is the spelling correct? Say yes or no.";
-            case 1: return "I heard " + spellOut(value) + ", " + value + ", as your middle name. Is the spelling correct? Say yes or no.";
-            case 2: return "I heard " + spellOut(value) + ", " + value + ", as your last name. Is the spelling correct? Say yes or no.";
-            case 3: return "I heard " + value + " as your age. Is that correct? Say yes or no.";
-            case 4: return "I heard " + value + " as your year level. Is that correct? Say yes or no.";
-            case 5: return "I heard " + NumberSpeechFormatter.spellDigits(value) + " as your school ID. Is that correct? Say yes or no.";
+            case 0: return "I heard " + NumberSpeechFormatter.spellDigits(value) + " as your school ID. Is that correct? Say yes or no.";
+            case 1: return "I heard " + spellOut(value) + ", " + value + ", as your first name. Is the spelling correct? Say yes or no.";
+            case 2: return "I heard " + spellOut(value) + ", " + value + ", as your middle name. Is the spelling correct? Say yes or no.";
+            case 3: return "I heard " + spellOut(value) + ", " + value + ", as your last name. Is the spelling correct? Say yes or no.";
+            case 4: return "I heard " + value + " as your birthdate. Is that correct? Say yes or no.";
+            case 5: return "I heard " + value + " as your year level. Is that correct? Say yes or no.";
             case 6: return "I heard your email as " + speakableEmail(value) + ". Is that correct? Say yes or no.";
-            case 7: return "Password received. Is that correct? Say yes or no.";
-            case 8: return "Confirm password received. Is that correct? Say yes or no.";
             default: return "I heard " + value + ". Is that correct? Say yes or no.";
         }
     }
@@ -1076,7 +1205,7 @@ public class RegisterActivity extends AppCompatActivity {
     // ----------------------------------------------------------------------
 
     private boolean isNameField(int index) {
-        return index == 0 || index == 1 || index == 2;
+        return index == 1 || index == 2 || index == 3;
     }
 
     private boolean isStartOverCommand(String lower) {
@@ -1259,14 +1388,45 @@ public class RegisterActivity extends AppCompatActivity {
         lower = convertNumberWords(lower);
 
         switch (currentFieldIndex) {
-            case 3: return lower.replaceAll("[^0-9]", "");
-            case 4: return normalizeYearLevel(lower);
-            case 5: return normalizeSchoolId(lower);
+            case 0: return normalizeSchoolId(lower);
+            case 4: return parseSpokenBirthdate(lower);
+            case 5: return normalizeYearLevel(lower);
             case 6: return parseSpokenEmail(lower);
-            case 7:
-            case 8: return processPassword(input);
             default: return capitalizeName(input);
         }
+    }
+
+    private static final String[] MONTH_NAMES = {
+            "january", "february", "march", "april", "may", "june",
+            "july", "august", "september", "october", "november", "december"
+    };
+
+    /** Parses a spoken birthdate ("January 15 2005") into ISO "yyyy-MM-dd".
+     *  Falls back to the raw trimmed input when month/day/year can't all be
+     *  found, so the confirmation read-back still surfaces the mismatch and
+     *  lets the user say "no" to retry, same as any other misheard field. */
+    private String parseSpokenBirthdate(String input) {
+        String cleaned = input.replaceAll("\\b(\\d+)(st|nd|rd|th)\\b", "$1");
+
+        int month = -1;
+        for (int i = 0; i < MONTH_NAMES.length; i++) {
+            if (cleaned.contains(MONTH_NAMES[i])) { month = i + 1; break; }
+        }
+
+        java.util.regex.Matcher yearMatcher =
+                java.util.regex.Pattern.compile("\\b(19|20)\\d{2}\\b").matcher(cleaned);
+        int year = yearMatcher.find() ? Integer.parseInt(yearMatcher.group()) : -1;
+
+        String withoutMonthYear = month != -1 ? cleaned.replace(MONTH_NAMES[month - 1], "") : cleaned;
+        if (year != -1) withoutMonthYear = withoutMonthYear.replaceAll("\\b(19|20)\\d{2}\\b", "");
+        java.util.regex.Matcher dayMatcher =
+                java.util.regex.Pattern.compile("\\b\\d{1,2}\\b").matcher(withoutMonthYear);
+        int day = dayMatcher.find() ? Integer.parseInt(dayMatcher.group()) : -1;
+
+        if (month == -1 || year == -1 || day < 1 || day > 31) {
+            return input.trim();
+        }
+        return String.format(Locale.US, "%04d-%02d-%02d", year, month, day);
     }
 
     private String parseSpokenEmail(String input) {
@@ -1323,23 +1483,6 @@ public class RegisterActivity extends AppCompatActivity {
         return digits;
     }
 
-    private String processPassword(String input) {
-        if (input == null) return "";
-        String pw    = input.trim();
-        String lower = pw.toLowerCase(Locale.US);
-        String[] prefixes = {
-                "my password is ", "the password is ", "password is ", "password ",
-                "confirm password is ", "confirm password ", "passcode is ", "passcode "
-        };
-        for (String prefix : prefixes) {
-            if (lower.startsWith(prefix)) {
-                pw = pw.substring(prefix.length()).trim();
-                break;
-            }
-        }
-        return pw.replaceAll("\\s+", "");
-    }
-
     private String capitalizeName(String input) {
         if (input == null || input.isEmpty()) return input;
         String[] words = input.trim().split("\\s+");
@@ -1365,43 +1508,24 @@ public class RegisterActivity extends AppCompatActivity {
         String firstName   = fname.getText().toString().trim();
         String middleName  = mname.getText().toString().trim();
         String lastName    = lname.getText().toString().trim();
-        String userAge     = age.getText().toString().trim();
+        String userBirthdate = birthdate.getText().toString().trim();
         String userYear    = yearLevel.getText().toString().trim();
         String schoolId    = schoolid.getText().toString().trim();
         String userEmail   = email.getText().toString().trim().toLowerCase(Locale.US);
-        String userPass    = password.getText().toString().trim();
-        String confirmPass = confirmPassword.getText().toString().trim();
+        String userSection = section.getText().toString().trim();
 
-        if (firstName.isEmpty())  { showError(fname,   "First name required",      "First name is required.");    return; }
-        if (lastName.isEmpty())   { showError(lname,   "Last name required",       "Last name is required.");     return; }
-        if (userAge.isEmpty())    { showError(age,     "Age required",             "Age is required.");           return; }
-        if (userYear.isEmpty())   { showError(yearLevel,"Year level required",     "Year level is required.");    return; }
-        if (schoolId.isEmpty())   { showError(schoolid,"School ID required",       "School ID is required.");     return; }
+        if (firstName.isEmpty())     { showError(fname,     "First name required",  "First name is required.");    return; }
+        if (lastName.isEmpty())      { showError(lname,     "Last name required",   "Last name is required.");     return; }
+        if (userBirthdate.isEmpty()) { showError(birthdate, "Birthdate required",   "Birthdate is required.");     return; }
+        if (userYear.isEmpty())      { showError(yearLevel, "Year level required",  "Year level is required.");    return; }
+        if (schoolId.isEmpty())      { showError(schoolid,  "School ID required",   "School ID is required.");     return; }
         if (userEmail.isEmpty() || !Patterns.EMAIL_ADDRESS.matcher(userEmail).matches()) {
             showError(email, "Invalid email", "Please enter a valid email address."); return;
         }
-        if (userPass.isEmpty())   { showError(password,"Password required",        "Password is required.");      return; }
-        if (userPass.length() < 6){ showError(password,"Minimum 6 characters",     "Password must be at least 6 characters."); return; }
-        if (confirmPass.isEmpty()){ showError(confirmPassword,"Required",          "Please confirm your password."); return; }
-        if (!userPass.equals(confirmPass)) {
-            showError(confirmPassword, "Passwords do not match", "Passwords do not match. Please try again."); return;
-        }
-        if (switchAgreePrivacy != null && !switchAgreePrivacy.isChecked()) {
-            showConsentError(); return;
-        }
 
         updateVoiceStatus("Submitting registration...");
-        registerToSupabase(firstName, middleName, lastName, userAge,
-                userYear, schoolId, userEmail, userPass);
-    }
-
-    private void showConsentError() {
-        if (optionAgreePrivacy == null) return;
-        scrollToField(optionAgreePrivacy);
-        shakeView(optionAgreePrivacy);
-        lastSpokenInstruction = "Please agree to the Privacy Policy before continuing. " +
-                "Tap the switch above the Continue button, or tap Read the full Privacy Policy to listen to it first.";
-        say(lastSpokenInstruction, null);
+        registerToSupabase(firstName, middleName, lastName, userBirthdate,
+                userYear, schoolId, userEmail, userSection);
     }
 
     private void showError(EditText field, String fieldError, String ttsMessage) {
@@ -1413,9 +1537,95 @@ public class RegisterActivity extends AppCompatActivity {
         say(lastSpokenInstruction, null);
     }
 
+    /** Looks up an already-enrolled student's details by School ID (from the
+     *  school's official_list import) and autofills the form. */
+    private void checkSchoolIdDetails() {
+        String schoolId = schoolid.getText().toString().trim();
+        if (schoolId.isEmpty()) {
+            showError(schoolid, "School ID required", "Please enter your School ID first.");
+            return;
+        }
+
+        checkSchoolIdBtn.setEnabled(false);
+        updateVoiceStatus("Checking your details...");
+        lastSpokenInstruction = "Please wait while I check your registered details.";
+        say(lastSpokenInstruction, null);
+
+        JSONObject jsonBody = new JSONObject();
+        String bodyStr;
+        try {
+            jsonBody.put("p_school_id", schoolId);
+            bodyStr = jsonBody.toString();
+        } catch (Exception e) {
+            checkSchoolIdBtn.setEnabled(true);
+            lastSpokenInstruction = "Failed to prepare the School ID check.";
+            say(lastSpokenInstruction, null);
+            return;
+        }
+
+        String url = ApiConfig.SUPABASE_URL + "/rest/v1/rpc/get_enrolled_student_by_school_id";
+
+        JsonArrayRequest request = new JsonArrayRequest(Request.Method.POST, url, null,
+                response -> {
+                    checkSchoolIdBtn.setEnabled(true);
+                    if (response == null || response.length() == 0) {
+                        lastSpokenInstruction = "No registered details found for this School ID. " +
+                                "Please double check the number, or fill in the fields manually.";
+                        say(lastSpokenInstruction, null);
+                        updateVoiceStatus("No record found for this School ID.");
+                        return;
+                    }
+                    try {
+                        JSONObject s = response.getJSONObject(0);
+                        fname.setText(s.optString("first_name", ""));
+                        mname.setText(s.optString("middle_name", ""));
+                        lname.setText(s.optString("last_name", ""));
+                        birthdate.setText(s.optString("birthdate", ""));
+                        yearLevel.setText(s.optString("year_level", ""));
+                        email.setText(s.optString("email", ""));
+                        section.setText(s.optString("section", ""));
+                        updateVoiceStatus("Details loaded. Please review.");
+                        reviewLoadedDetails();
+                    } catch (Exception e) {
+                        lastSpokenInstruction = "Found your record, but couldn't read the details. " +
+                                "Please fill in the fields manually.";
+                        say(lastSpokenInstruction, null);
+                        updateVoiceStatus("Failed to read registered details.");
+                    }
+                },
+                error -> {
+                    checkSchoolIdBtn.setEnabled(true);
+                    lastSpokenInstruction = "Could not check your School ID right now. " +
+                            "Please try again, or fill in the fields manually.";
+                    say(lastSpokenInstruction, null);
+                    updateVoiceStatus("Check failed.");
+                }
+        ) {
+            @Override public byte[]              getBody()            { return bodyStr.getBytes(StandardCharsets.UTF_8); }
+            @Override public String              getBodyContentType() { return "application/json; charset=utf-8"; }
+            @Override public Map<String, String> getHeaders() {
+                Map<String, String> headers = new HashMap<>();
+                headers.put("apikey",        ApiConfig.SUPABASE_KEY);
+                headers.put("Authorization", "Bearer " + ApiConfig.SUPABASE_KEY);
+                headers.put("Content-Type",  "application/json");
+                headers.put("Accept",        "application/json");
+                return headers;
+            }
+        };
+
+        request.setRetryPolicy(new DefaultRetryPolicy(15000, 1, 1.0f));
+        requestQueue.add(request);
+    }
+
+    private void reviewLoadedDetails() {
+        lastSpokenInstruction = "I found your registered details. " + buildReviewSummaryText()
+                + "Please review the details above, then press Continue if everything looks correct.";
+        say(lastSpokenInstruction, null);
+    }
+
     private void registerToSupabase(String firstName, String middleName, String lastName,
-                                    String userAge, String yearLevelVal, String schoolId,
-                                    String userEmail, String userPassword) {
+                                    String userBirthdate, String yearLevelVal, String schoolId,
+                                    String userEmail, String userSection) {
         continueBtn.setEnabled(false);
         voiceRegisterBtn.setEnabled(false);
 
@@ -1424,11 +1634,11 @@ public class RegisterActivity extends AppCompatActivity {
             jsonBody.put("p_first_name",  firstName);
             jsonBody.put("p_middle_name", middleName);
             jsonBody.put("p_last_name",   lastName);
-            jsonBody.put("p_age",         Integer.parseInt(userAge));
+            jsonBody.put("p_birthdate",   userBirthdate);
             jsonBody.put("p_year_level",  yearLevelVal);
             jsonBody.put("p_school_id",   schoolId);
             jsonBody.put("p_email",       userEmail);
-            jsonBody.put("p_password",    userPassword);
+            if (!userSection.isEmpty()) jsonBody.put("p_section", userSection);
         } catch (Exception e) {
             continueBtn.setEnabled(true);
             voiceRegisterBtn.setEnabled(true);
@@ -1453,16 +1663,30 @@ public class RegisterActivity extends AppCompatActivity {
                 response -> {
                     continueBtn.setEnabled(true);
                     voiceRegisterBtn.setEnabled(true);
-                    Toast.makeText(this,
-                            "Registration submitted. Please wait for admin approval.",
-                            Toast.LENGTH_LONG).show();
-                    lastSpokenInstruction = "Registration submitted successfully. " +
-                            "Please wait for admin approval before logging in.";
+
+                    String approvalStatus = "pending";
+                    try {
+                        org.json.JSONArray arr = new org.json.JSONArray(response);
+                        if (arr.length() > 0) {
+                            approvalStatus = arr.getJSONObject(0).optString("approval_status", "pending");
+                        }
+                    } catch (Exception ignored) {}
+
+                    boolean approved = "approved".equalsIgnoreCase(approvalStatus);
+                    String toastMessage = approved
+                            ? "Registration successful! You can log in now."
+                            : "Registration submitted. Please wait for admin approval.";
+                    lastSpokenInstruction = approved
+                            ? "Registration successful. You can log in now using your birthdate as your password. " +
+                                    "Taking you to the login screen."
+                            : "Registration submitted successfully. Please wait for admin approval before logging in. " +
+                                    "Taking you to the login screen.";
+
+                    Toast.makeText(this, toastMessage, Toast.LENGTH_LONG).show();
                     say(lastSpokenInstruction, () ->
                             handler.postDelayed(() -> {
                                 Intent intent = new Intent(RegisterActivity.this, LoginActivity.class);
-                                intent.putExtra("registered_email",   userEmail);
-                                intent.putExtra("registered_password", userPassword);
+                                intent.putExtra("registered_school_id", schoolId);
                                 intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP
                                         | Intent.FLAG_ACTIVITY_NEW_TASK);
                                 startActivity(intent);
@@ -1476,16 +1700,23 @@ public class RegisterActivity extends AppCompatActivity {
                     String errorMessage = "Registration failed.";
                     if (error.networkResponse != null && error.networkResponse.data != null) {
                         String body = new String(error.networkResponse.data, StandardCharsets.UTF_8);
+                        Log.e("Register", "student_register RPC error (status "
+                                + error.networkResponse.statusCode + "): " + body);
                         // Check the specific constraint name first — a bare "duplicate"
                         // match is true for ANY unique-constraint violation (email OR
                         // school ID), so checking it before the specific school_id case
                         // was mislabeling school-ID collisions as "email already
                         // registered" even when the email itself was brand new.
+                        // Matches only the real constraint names, not a bare "school_id"
+                        // substring — that used to also match unrelated errors (e.g. a
+                        // PostgREST "could not find function" message that just happens
+                        // to list p_school_id among the function's parameter names),
+                        // misreporting them as a duplicate School ID.
                         if (body.contains("students_email_key")) {
                             errorMessage = "This email is already registered.";
                             email.setError("Email already registered");
                             email.requestFocus(); scrollToField(email);
-                        } else if (body.contains("students_school_id_key") || body.contains("school_id")) {
+                        } else if (body.contains("students_school_id_key")) {
                             errorMessage = "School ID already registered or invalid.";
                             schoolid.setError("Check School ID");
                             schoolid.requestFocus(); scrollToField(schoolid);
@@ -1537,8 +1768,7 @@ public class RegisterActivity extends AppCompatActivity {
     }
 
     private void setupAutoScrollForTyping() {
-        EditText[] fields = { fname, mname, lname, age, yearLevel, schoolid,
-                email, password, confirmPassword };
+        EditText[] fields = { fname, mname, lname, birthdate, yearLevel, section, schoolid, email };
         for (EditText field : fields) {
             if (field == null) continue;
             field.setOnFocusChangeListener((v, hasFocus) -> { if (hasFocus) scrollToField(v); });
@@ -1550,18 +1780,52 @@ public class RegisterActivity extends AppCompatActivity {
         }
     }
 
+    private void setupBirthdatePicker() {
+        if (birthdate == null) return;
+        birthdate.setOnClickListener(v -> {
+            cancelVoiceModeForManualInput();
+            scrollToField(v);
+            showBirthdatePickerDialog();
+        });
+    }
+
+    private void showBirthdatePickerDialog() {
+        java.util.Calendar calendar = java.util.Calendar.getInstance();
+        String existing = birthdate.getText().toString().trim();
+        if (!existing.isEmpty()) {
+            try {
+                java.util.Date parsed = new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                        .parse(existing);
+                if (parsed != null) calendar.setTime(parsed);
+            } catch (Exception ignored) {}
+        } else {
+            calendar.add(java.util.Calendar.YEAR, -18);
+        }
+
+        android.app.DatePickerDialog dialog = new android.app.DatePickerDialog(this,
+                (view, year, month, dayOfMonth) ->
+                        birthdate.setText(String.format(Locale.US, "%04d-%02d-%02d", year, month + 1, dayOfMonth)),
+                calendar.get(java.util.Calendar.YEAR),
+                calendar.get(java.util.Calendar.MONTH),
+                calendar.get(java.util.Calendar.DAY_OF_MONTH));
+        dialog.getDatePicker().setMaxDate(System.currentTimeMillis());
+        dialog.show();
+    }
+
     private void cancelVoiceModeForManualInput() {
         if (!isVoiceMode) return;
         isVoiceMode       = false;
         isConfirmingField = false;
+        isAwaitingWrongIdConfirm = false;
+        isAwaitingIdRetryConfirm = false;
         stopListeningSafely();
         updateVoiceStatus("Switched to manual input. Fill in the rest, then press Continue.");
     }
 
     private void animateViews() {
         if (logoImage != null) UiAnim.popIn(logoImage, 0);
-        View[] views = { voiceRegisterBtn, txtVoiceStatus, fname, mname, lname, age, yearLevel,
-                schoolid, email, password, confirmPassword, continueBtn };
+        View[] views = { voiceRegisterBtn, txtVoiceStatus, schoolid, fname, mname, lname,
+                birthdate, yearLevel, section, email, continueBtn };
         for (int i = 0; i < views.length; i++) {
             View v = views[i];
             if (v == null) continue;

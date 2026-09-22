@@ -46,7 +46,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Student Registration"
-                android:textSize="22sp"
+                android:textSize="26sp"
                 android:textStyle="bold"
                 android:textColor="#FFFFFF"
                 android:layout_gravity="center"
@@ -56,7 +56,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Create your account to access the VisualED learning support system"
-                android:textSize="14sp"
+                android:textSize="18sp"
                 android:textColor="#F2DDE3"
                 android:textAlignment="center"
                 android:layout_gravity="center"
@@ -70,7 +70,7 @@
                 android:textAllCaps="false"
                 android:textColor="@color/color_primary"
                 android:textStyle="bold"
-                android:textSize="15sp"
+                android:textSize="18sp"
                 android:background="@drawable/bg_btn_voice_soft"
                 android:backgroundTint="@null"
                 android:layout_marginTop="18dp" />
@@ -84,16 +84,54 @@
                 android:padding="14dp"
                 android:textColor="@color/color_text_primary"
                 android:textStyle="bold"
-                android:textSize="13sp"
+                android:textSize="18sp"
                 android:gravity="center"
                 android:layout_marginTop="10dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="14dp">
+
+                <EditText
+                    android:id="@+id/schoolid"
+                    android:layout_width="0dp"
+                    android:layout_height="54dp"
+                    android:layout_weight="1"
+                    android:hint="School ID"
+                    android:gravity="center_vertical"
+                    android:textColor="#2B0B14"
+                    android:textColorHint="#8A6F78"
+                    android:cursorVisible="true"
+                    android:background="@drawable/bg_input_maroon_soft"
+                    android:padding="16dp"
+                    android:textSize="20sp"
+                    android:layout_marginEnd="8dp" />
+
+                <android.widget.Button
+                    android:id="@+id/checkSchoolIdBtn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="54dp"
+                    android:minWidth="88dp"
+                    android:text="Check"
+                    android:textAllCaps="false"
+                    android:textColor="@color/color_primary"
+                    android:textStyle="bold"
+                    android:textSize="18sp"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:background="@drawable/bg_btn_voice_soft"
+                    android:backgroundTint="@null" />
+            </LinearLayout>
 
             <!-- ── Personal Information ─────────────────────────────────────── -->
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Personal Information"
-                android:textSize="14sp"
+                android:textSize="16sp"
                 android:textStyle="bold"
                 android:textColor="#FFFFFF"
                 android:layout_marginTop="22dp"
@@ -114,6 +152,7 @@
                 android:drawablePadding="10dp"
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
+                android:textSize="20sp"
                 android:layout_marginBottom="12dp" />
 
             <EditText
@@ -131,6 +170,7 @@
                 android:drawablePadding="10dp"
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
+                android:textSize="20sp"
                 android:layout_marginBottom="12dp" />
 
             <EditText
@@ -148,6 +188,7 @@
                 android:drawablePadding="10dp"
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
+                android:textSize="20sp"
                 android:layout_marginBottom="4dp" />
 
             <!-- ── Academic Information ─────────────────────────────────────── -->
@@ -155,24 +196,26 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Academic Information"
-                android:textSize="14sp"
+                android:textSize="16sp"
                 android:textStyle="bold"
                 android:textColor="#FFFFFF"
                 android:layout_marginTop="18dp"
                 android:layout_marginBottom="8dp" />
 
             <EditText
-                android:id="@+id/age"
+                android:id="@+id/birthdate"
                 android:layout_width="match_parent"
                 android:layout_height="54dp"
-                android:hint="Age"
-                android:inputType="number"
+                android:hint="Birthdate"
+                android:focusable="false"
+                android:clickable="true"
                 android:gravity="center_vertical"
                 android:textColor="#2B0B14"
                 android:textColorHint="#8A6F78"
-                android:cursorVisible="true"
+                android:cursorVisible="false"
                 android:background="@drawable/bg_input_maroon_soft"
                 android:padding="16dp"
+                android:textSize="20sp"
                 android:layout_marginBottom="12dp" />
 
             <EditText
@@ -186,19 +229,21 @@
                 android:cursorVisible="true"
                 android:background="@drawable/bg_input_maroon_soft"
                 android:padding="16dp"
+                android:textSize="20sp"
                 android:layout_marginBottom="12dp" />
 
             <EditText
-                android:id="@+id/schoolid"
+                android:id="@+id/section"
                 android:layout_width="match_parent"
                 android:layout_height="54dp"
-                android:hint="School ID"
+                android:hint="Section (e.g. BSIT-3A)"
                 android:gravity="center_vertical"
                 android:textColor="#2B0B14"
                 android:textColorHint="#8A6F78"
                 android:cursorVisible="true"
                 android:background="@drawable/bg_input_maroon_soft"
                 android:padding="16dp"
+                android:textSize="20sp"
                 android:layout_marginBottom="4dp" />
 
             <!-- ── Account Details ──────────────────────────────────────────── -->
@@ -206,7 +251,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Account Details"
-                android:textSize="14sp"
+                android:textSize="16sp"
                 android:textStyle="bold"
                 android:textColor="#FFFFFF"
                 android:layout_marginTop="18dp"
@@ -228,125 +273,8 @@
                 android:drawablePadding="10dp"
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
-                android:layout_marginBottom="12dp" />
-
-            <RelativeLayout
-                android:layout_width="match_parent"
-                android:layout_height="54dp"
-                android:layout_marginBottom="12dp">
-
-                <EditText
-                    android:id="@+id/password"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:hint="Password"
-                    android:inputType="textPassword"
-                    android:gravity="center_vertical"
-                    android:textColor="#2B0B14"
-                    android:textColorHint="#8A6F78"
-                    android:cursorVisible="true"
-                    android:background="@drawable/bg_input_maroon_soft"
-                    android:drawableStart="@drawable/ic_lock"
-                    android:drawableTint="@color/color_text_secondary"
-                    android:drawablePadding="10dp"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="52dp" />
-
-                <ImageView
-                    android:id="@+id/togglePassword1"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:layout_alignParentEnd="true"
-                    android:layout_centerVertical="true"
-                    android:layout_marginEnd="2dp"
-                    android:padding="13dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:contentDescription="Toggle Password"
-                    android:src="@drawable/ic_eye_closed" />
-            </RelativeLayout>
-
-            <RelativeLayout
-                android:layout_width="match_parent"
-                android:layout_height="54dp"
-                android:layout_marginBottom="4dp">
-
-                <EditText
-                    android:id="@+id/confirmPassword"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:hint="Confirm Password"
-                    android:inputType="textPassword"
-                    android:gravity="center_vertical"
-                    android:textColor="#2B0B14"
-                    android:textColorHint="#8A6F78"
-                    android:cursorVisible="true"
-                    android:background="@drawable/bg_input_maroon_soft"
-                    android:drawableStart="@drawable/ic_lock"
-                    android:drawableTint="@color/color_text_secondary"
-                    android:drawablePadding="10dp"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="52dp" />
-
-                <ImageView
-                    android:id="@+id/togglePassword2"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:layout_alignParentEnd="true"
-                    android:layout_centerVertical="true"
-                    android:layout_marginEnd="2dp"
-                    android:padding="13dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:contentDescription="Toggle Password"
-                    android:src="@drawable/ic_eye_closed" />
-            </RelativeLayout>
-
-            <LinearLayout
-                android:id="@+id/optionAgreePrivacy"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:background="@drawable/bg_option_item_light"
-                android:gravity="center_vertical"
-                android:minHeight="58dp"
-                android:orientation="horizontal"
-                android:padding="14dp">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:importantForAccessibility="no"
-                    android:text="I agree to the Privacy Policy"
-                    android:textColor="#2B0B14"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-
-                <androidx.appcompat.widget.SwitchCompat
-                    android:id="@+id/switchAgreePrivacy"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:checked="false"
-                    android:contentDescription="I agree to the Privacy Policy, toggle"
-                    android:minHeight="48dp"
-                    android:minWidth="48dp"
-                    android:text="" />
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/txtPrivacyNotice"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="14dp"
-                android:minHeight="40dp"
-                android:gravity="center"
-                android:text="Read the full Privacy Policy"
-                android:textColor="@color/color_primary"
-                android:textSize="14sp"
-                android:textStyle="bold" />
+                android:textSize="20sp"
+                android:layout_marginBottom="4dp" />
 
             <!-- BUTTONS -->
             <android.widget.Button
@@ -357,7 +285,7 @@
                 android:textAllCaps="false"
                 android:textColor="#FFFFFF"
                 android:textStyle="bold"
-                android:textSize="15sp"
+                android:textSize="18sp"
                 android:background="@drawable/bg_btn_login_maroon"
                 android:backgroundTint="@null"
                 android:elevation="3dp" />

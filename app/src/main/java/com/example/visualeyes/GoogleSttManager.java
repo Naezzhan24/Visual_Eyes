@@ -39,10 +39,13 @@ public class GoogleSttManager {
             "villanueva", "aquino", "castillo"
     };
 
-    private static final String[] COMMAND_PHRASE_BOOST = {
+    // Package-private like NAME_PHRASE_BOOST above — also reused by
+    // TextSizeTestActivity as RecognizerIntent.EXTRA_BIASING_STRINGS hints for
+    // the built-in SpeechRecognizer while listening for a yes/no answer.
+    static final String[] COMMAND_PHRASE_BOOST = {
             "yes", "no", "correct", "yep", "yeah", "new", "existing",
-            "register", "login", "log in", "cancel", "stop", "forgot",
-            "skip", "back", "repeat", "instruction"
+            "register", "login", "log in", "cancel", "stop",
+            "skip", "back", "repeat", "instruction", "feedback", "puna", "komento"
     };
 
     private static final String NAMES_FIRST_ASSET = "names/first_names_ph.txt";
@@ -447,7 +450,22 @@ public class GoogleSttManager {
             config.put("enableAutomaticPunctuation", false);
             config.put("model", mode.equals("command") ? "command_and_search" : "default");
 
-            if (mode.equals("email")) {
+            if (mode.startsWith("word:")) {
+
+                // Assessment read-aloud: boosts the exact word the student is
+                // being asked to read, instead of the unrelated "command" mode
+                // phrase list (yes/no/login/register/...) this used to reuse —
+                // that mismatch was actively biasing recognition away from the
+                // target word, worst of all in noisy audio where boosting
+                // matters most.
+                String targetWord = mode.substring("word:".length()).trim();
+                JSONObject speechContext = new JSONObject();
+                JSONArray phrases = new JSONArray();
+                if (!targetWord.isEmpty()) phrases.put(targetWord);
+                speechContext.put("phrases", phrases);
+                speechContext.put("boost", 20);
+                config.put("speechContexts", new JSONArray().put(speechContext));
+            } else if (mode.equals("email")) {
                 JSONObject speechContext = new JSONObject();
                 JSONArray phrases = new JSONArray();
                 phrases.put("gmail"); phrases.put("yahoo"); phrases.put("outlook");

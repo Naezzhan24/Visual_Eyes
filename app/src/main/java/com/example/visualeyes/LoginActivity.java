@@ -15,9 +15,7 @@ import android.os.Vibrator;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
-import android.text.InputType;
 import android.util.Log;
-import android.util.Patterns;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -49,9 +47,9 @@ import java.util.Map;
 
 public class LoginActivity extends AppCompatActivity {
 
-    private EditText emailInput, passwordInput;
+    private EditText schoolIdInput, passwordInput;
     private Button loginButton, voiceLoginButton;
-    private TextView registerText, forgotPasswordText, txtVoiceStatus, txtTitle;
+    private TextView registerText, txtVoiceStatus, txtTitle;
     private ImageView logoImage, togglePassword;
     private View mainPanel;
 
@@ -92,17 +90,13 @@ public class LoginActivity extends AppCompatActivity {
     private static final float MIN_ZOOM_SCALE = 1.0f;
     private static final float MAX_ZOOM_SCALE = 3.0f;
 
-    private String emailUsername  = "";
-    private String emailProvider  = "";
-    private String emailExtension = "";
+    private String schoolIdSpoken = "";
 
     private enum VoiceStep {
-        USERNAME, CONFIRM_USERNAME,
-        PROVIDER, CONFIRM_PROVIDER,
-        EXTENSION, CONFIRM_EXTENSION,
+        SCHOOL_ID, CONFIRM_SCHOOL_ID,
         PASSWORD
     }
-    private VoiceStep currentStep = VoiceStep.USERNAME;
+    private VoiceStep currentStep = VoiceStep.SCHOOL_ID;
 
     private static final long PROMPT_RETRY_DELAY  = 1600L;
 
@@ -166,6 +160,7 @@ public class LoginActivity extends AppCompatActivity {
         bindViews();
         buildSpeechIntent();
         setupPasswordToggle();
+        setupPasswordAutoFormat();
         setupClickActions();
         setupPressAnimations();
         setupGestures();
@@ -191,30 +186,28 @@ public class LoginActivity extends AppCompatActivity {
 
         setVoiceStatus("Voice engine ready.");
 
-        String regEmail = getIntent().getStringExtra("registered_email");
-        String regPass  = getIntent().getStringExtra("registered_password");
-        if (regEmail != null) emailInput.setText(regEmail);
-        if (regPass  != null) passwordInput.setText(regPass);
+        String regSchoolId = getIntent().getStringExtra("registered_school_id");
+        if (regSchoolId != null) schoolIdInput.setText(regSchoolId);
 
-        boolean emailRemembered = false;
-        if (regEmail == null) {
-            String rememberedEmail = authManager.getRememberedEmail();
-            if (!rememberedEmail.isEmpty()) {
-                emailInput.setText(rememberedEmail);
-                emailRemembered = true;
+        boolean schoolIdRemembered = false;
+        if (regSchoolId == null) {
+            String rememberedSchoolId = authManager.getRememberedSchoolId();
+            if (!rememberedSchoolId.isEmpty()) {
+                schoolIdInput.setText(rememberedSchoolId);
+                schoolIdRemembered = true;
             }
         }
 
         String sessionExpiredMessage = getIntent().getStringExtra("session_expired_message");
 
-        boolean finalEmailRemembered = emailRemembered;
+        boolean finalSchoolIdRemembered = schoolIdRemembered;
         handler.postDelayed(() -> {
             String tips;
             if (sessionExpiredMessage != null) {
                 tips = sessionExpiredMessage;
             } else {
-                tips = finalEmailRemembered
-                        ? "Welcome back to Visual E D. Your email has been filled in for you â " +
+                tips = finalSchoolIdRemembered
+                        ? "Welcome back to Visual E D. Your School ID has been filled in for you â " +
                         "just enter or say your password to continue."
                         : "Welcome to Visual E D. Quick tip: triple tap anywhere on the screen " +
                         "to repeat the last instruction, or pinch with two fingers to zoom in.";
@@ -246,12 +239,11 @@ public class LoginActivity extends AppCompatActivity {
         mainPanel          = findViewById(R.id.mainPanel);
         logoImage          = findViewById(R.id.logoImage);
         txtTitle           = findViewById(R.id.txtTitle);
-        emailInput         = findViewById(R.id.etEmail);
+        schoolIdInput      = findViewById(R.id.etSchoolId);
         passwordInput      = findViewById(R.id.etPassword);
         loginButton        = findViewById(R.id.btnLogin);
         voiceLoginButton   = findViewById(R.id.btnVoiceLogin);
         registerText       = findViewById(R.id.txtRegister);
-        forgotPasswordText = findViewById(R.id.txtForgotPassword);
         txtVoiceStatus     = findViewById(R.id.txtVoiceStatus);
         togglePassword     = findViewById(R.id.togglePassword);
     }
@@ -303,27 +295,66 @@ public class LoginActivity extends AppCompatActivity {
             startActivity(new Intent(LoginActivity.this, RegisterActivity.class));
             overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
         });
-
-        forgotPasswordText.setOnClickListener(v -> {
-            stopListeningSafely();
-            isVoiceLoginMode = false;
-            isAwaitingEntryChoice = false;
-            startActivity(new Intent(LoginActivity.this, ForgotPasswordActivity.class));
-            overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
-        });
     }
 
     private void setupPasswordToggle() {
         if (togglePassword == null) return;
         togglePassword.setOnClickListener(v -> {
             isPasswordVisible = !isPasswordVisible;
-            passwordInput.setInputType(isPasswordVisible
-                    ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-                    : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+            // Toggle the transformation method directly instead of going
+            // through setInputType() — setInputType() followed by
+            // setKeyListener() (needed to keep the dash-permitting digits
+            // listener from setupPasswordAutoFormat()) was clobbering
+            // Android's own inputType/masking bookkeeping, so the dots
+            // wouldn't actually hide/show. This leaves inputType and the
+            // KeyListener untouched and just swaps the masking.
+            passwordInput.setTransformationMethod(isPasswordVisible
+                    ? null
+                    : android.text.method.PasswordTransformationMethod.getInstance());
             passwordInput.setSelection(passwordInput.getText().length());
             togglePassword.setImageResource(isPasswordVisible
                     ? R.drawable.ic_eye_open : R.drawable.ic_eye_closed);
             bounceClick(togglePassword);
+        });
+    }
+
+    /** The password is the student's birthdate — auto-inserts dashes as they
+     *  type digits (02272005 -> 02-27-2005) so they don't have to type the
+     *  dashes themselves, matching the MM-DD-YYYY format student_register
+     *  derives the stored password from. */
+    private void setupPasswordAutoFormat() {
+        // The default digits-only KeyListener from inputType="numberPassword"
+        // silently strips any "-" the code below tries to insert — swap in a
+        // listener that also permits it.
+        passwordInput.setKeyListener(android.text.method.DigitsKeyListener.getInstance("0123456789-"));
+
+        passwordInput.addTextChangedListener(new android.text.TextWatcher() {
+            private boolean isFormatting = false;
+
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {
+                if (isFormatting) return;
+                isFormatting = true;
+
+                String digits = s.toString().replaceAll("[^0-9]", "");
+                if (digits.length() > 8) digits = digits.substring(0, 8);
+
+                StringBuilder formatted = new StringBuilder();
+                for (int i = 0; i < digits.length(); i++) {
+                    if (i == 2 || i == 4) formatted.append('-');
+                    formatted.append(digits.charAt(i));
+                }
+
+                if (!formatted.toString().contentEquals(s)) {
+                    s.replace(0, s.length(), formatted.toString());
+                }
+                passwordInput.setSelection(Math.min(formatted.length(), passwordInput.getText().length()));
+
+                isFormatting = false;
+            }
         });
     }
 
@@ -427,12 +458,10 @@ public class LoginActivity extends AppCompatActivity {
         isAwaitingEntryChoice = false;
         voiceRetryCount   = 0;
         latestPartialText = "";
-        emailUsername     = "";
-        emailProvider     = "";
-        emailExtension    = "";
-        currentStep       = VoiceStep.USERNAME;
+        schoolIdSpoken    = "";
+        currentStep       = VoiceStep.SCHOOL_ID;
 
-        emailInput.setText("");
+        schoolIdInput.setText("");
         passwordInput.setText("");
 
         setVoiceStatus("Voice login started.");
@@ -442,25 +471,23 @@ public class LoginActivity extends AppCompatActivity {
         say(lastSpokenInstruction, this::promptCurrentStep);
     }
 
-    private void startVoiceLoginWithRememberedEmail(String rememberedEmail) {
+    private void startVoiceLoginWithRememberedSchoolId(String rememberedSchoolId) {
         isVoiceLoginMode  = true;
         isAwaitingEntryChoice = false;
         voiceRetryCount   = 0;
         latestPartialText = "";
-        emailUsername     = "";
-        emailProvider     = "";
-        emailExtension    = "";
+        schoolIdSpoken    = "";
         currentStep       = VoiceStep.PASSWORD;
 
-        emailInput.setText(rememberedEmail);
-        emailInput.setSelection(rememberedEmail.length());
+        schoolIdInput.setText(rememberedSchoolId);
+        schoolIdInput.setSelection(rememberedSchoolId.length());
         passwordInput.setText("");
 
         setVoiceStatus("Voice login started.");
         pulseVoiceStatus();
 
-        lastSpokenInstruction = "Welcome back. Using " + rememberedEmail + " as your email. " +
-                "You'll hear a short beep before it's your turn to speak. Please say your password now.";
+        lastSpokenInstruction = "Welcome back. Using " + NumberSpeechFormatter.spellDigits(rememberedSchoolId) +
+                " as your School ID. You'll hear a short beep before it's your turn to speak. Please say your password now.";
         say(lastSpokenInstruction, this::promptCurrentStep);
     }
 
@@ -470,48 +497,24 @@ public class LoginActivity extends AppCompatActivity {
         latestPartialText = "";
 
         switch (currentStep) {
-            case USERNAME:
-                setVoiceStatus("Say your username...");
-                lastSpokenInstruction = "Please say the first part of your email, before the at sign. " +
-                        "For example, johnsmith123.";
-                say(lastSpokenInstruction, () -> startGoogleListening("email"));
-                break;
-
-            case CONFIRM_USERNAME:
-                setVoiceStatus("Confirm: " + emailUsername);
-                lastSpokenInstruction = "I heard your username as " + emailUsername + ". Is that correct? Say yes or no.";
+            case SCHOOL_ID:
+                setVoiceStatus("Say your School ID...");
+                lastSpokenInstruction = "Please say your School ID number.";
                 say(lastSpokenInstruction, () -> startGoogleListening("command"));
                 break;
 
-            case PROVIDER:
-                setVoiceStatus("Say email provider...");
-                lastSpokenInstruction = "Please say your email provider. For example, gmail, yahoo, or outlook.";
-                say(lastSpokenInstruction, () -> startGoogleListening("command"));
-                break;
-
-            case CONFIRM_PROVIDER:
-                setVoiceStatus("Confirm: " + emailProvider);
-                lastSpokenInstruction = "I heard your provider as " + emailProvider + ". Is that correct? Say yes or no.";
-                say(lastSpokenInstruction, () -> startGoogleListening("command"));
-                break;
-
-            case EXTENSION:
-                setVoiceStatus("Say domain extension...");
-                lastSpokenInstruction = "Please say the ending of your email address, like com, ph, or edu.";
-                say(lastSpokenInstruction, () -> startGoogleListening("command"));
-                break;
-
-            case CONFIRM_EXTENSION:
-                String fullEmail = emailUsername + "@" + emailProvider + "." + emailExtension;
-                setVoiceStatus("Confirm email: " + fullEmail);
-                lastSpokenInstruction = "Your email is " + emailUsername + " at " + emailProvider + " dot " + emailExtension + ". Is that correct? Say yes or no.";
+            case CONFIRM_SCHOOL_ID:
+                setVoiceStatus("Confirm: " + schoolIdSpoken);
+                lastSpokenInstruction = "I heard your School ID as " +
+                        NumberSpeechFormatter.spellDigits(schoolIdSpoken) + ". Is that correct? Say yes or no.";
                 say(lastSpokenInstruction, () -> startGoogleListening("command"));
                 break;
 
             case PASSWORD:
-                setVoiceStatus("Say your password...");
-                lastSpokenInstruction = "Please say your password now. If you're somewhere public, " +
-                        "you may want to switch to manual login instead.";
+                setVoiceStatus("Say your birthdate as your password...");
+                lastSpokenInstruction = "Your password is your birthdate. Please say it now, " +
+                        "including the month, day, and year — for example, February 27, 2005. " +
+                        "If you're somewhere public, you may want to switch to manual login instead.";
                 say(lastSpokenInstruction, () -> startGoogleListening("password"));
                 break;
         }
@@ -598,12 +601,8 @@ public class LoginActivity extends AppCompatActivity {
     private String currentFieldDescriptionForVosk() {
         if (isAwaitingEntryChoice) return "new or existing user";
         switch (currentStep) {
-            case USERNAME:
-            case CONFIRM_USERNAME:  return "email username";
-            case PROVIDER:
-            case CONFIRM_PROVIDER:  return "email provider";
-            case EXTENSION:
-            case CONFIRM_EXTENSION: return "email domain extension";
+            case SCHOOL_ID:
+            case CONFIRM_SCHOOL_ID: return "school ID";
             case PASSWORD:          return "password";
             default:                return null;
         }
@@ -636,9 +635,9 @@ public class LoginActivity extends AppCompatActivity {
                 entryChoiceRetryCount = 0;
                 stopListeningSafely();
 
-                String rememberedEmail = authManager.getRememberedEmail();
-                if (!rememberedEmail.isEmpty()) {
-                    startVoiceLoginWithRememberedEmail(rememberedEmail);
+                String rememberedSchoolId = authManager.getRememberedSchoolId();
+                if (!rememberedSchoolId.isEmpty()) {
+                    startVoiceLoginWithRememberedSchoolId(rememberedSchoolId);
                 } else {
                     startVoiceLogin();
                 }
@@ -672,77 +671,25 @@ public class LoginActivity extends AppCompatActivity {
             });
             return;
         }
-        if (lower.contains("forgot")) {
-            isVoiceLoginMode = false;
-            stopListeningSafely();
-            lastSpokenInstruction = "Opening forgot password.";
-            say(lastSpokenInstruction, () -> {
-                startActivity(new Intent(this, ForgotPasswordActivity.class));
-                overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
-            });
-            return;
-        }
-
         switch (currentStep) {
-            case USERNAME:
-                emailUsername = lower.replaceAll("\\s+", "");
-                if (emailUsername.isEmpty()) { retryOrStop("I did not catch your username."); return; }
-                currentStep = VoiceStep.CONFIRM_USERNAME;
+            case SCHOOL_ID:
+                schoolIdSpoken = normalizeSchoolId(lower);
+                if (schoolIdSpoken.isEmpty()) { retryOrStop("I did not catch your School ID."); return; }
+                currentStep = VoiceStep.CONFIRM_SCHOOL_ID;
                 promptCurrentStep();
                 break;
 
-            case CONFIRM_USERNAME:
+            case CONFIRM_SCHOOL_ID:
                 if (isYes(lower)) {
                     voiceRetryCount = 0;
-                    currentStep = VoiceStep.PROVIDER;
-                    promptCurrentStep();
-                } else {
-                    emailUsername = "";
-                    currentStep = VoiceStep.USERNAME;
-                    lastSpokenInstruction = "Okay, please say your username again.";
-                    say(lastSpokenInstruction, () -> promptCurrentStep());
-                }
-                break;
-
-            case PROVIDER:
-                emailProvider = normalizeProvider(lower);
-                if (emailProvider.isEmpty()) { retryOrStop("I did not catch your provider."); return; }
-                currentStep = VoiceStep.CONFIRM_PROVIDER;
-                promptCurrentStep();
-                break;
-
-            case CONFIRM_PROVIDER:
-                if (isYes(lower)) {
-                    voiceRetryCount = 0;
-                    currentStep = VoiceStep.EXTENSION;
-                    promptCurrentStep();
-                } else {
-                    emailProvider = "";
-                    currentStep = VoiceStep.PROVIDER;
-                    lastSpokenInstruction = "Okay, please say your provider again.";
-                    say(lastSpokenInstruction, () -> promptCurrentStep());
-                }
-                break;
-
-            case EXTENSION:
-                emailExtension = normalizeExtension(lower);
-                if (emailExtension.isEmpty()) { retryOrStop("I did not catch your extension."); return; }
-                currentStep = VoiceStep.CONFIRM_EXTENSION;
-                promptCurrentStep();
-                break;
-
-            case CONFIRM_EXTENSION:
-                if (isYes(lower)) {
-                    voiceRetryCount = 0;
-                    String fullEmail = emailUsername + "@" + emailProvider + "." + emailExtension;
-                    emailInput.setText(fullEmail);
-                    emailInput.setSelection(fullEmail.length());
+                    schoolIdInput.setText(schoolIdSpoken);
+                    schoolIdInput.setSelection(schoolIdSpoken.length());
                     currentStep = VoiceStep.PASSWORD;
                     promptCurrentStep();
                 } else {
-                    emailExtension = "";
-                    currentStep = VoiceStep.EXTENSION;
-                    lastSpokenInstruction = "Okay, please say your extension again.";
+                    schoolIdSpoken = "";
+                    currentStep = VoiceStep.SCHOOL_ID;
+                    lastSpokenInstruction = "Okay, please say your School ID again.";
                     say(lastSpokenInstruction, () -> promptCurrentStep());
                 }
                 break;
@@ -767,23 +714,20 @@ public class LoginActivity extends AppCompatActivity {
                 || text.contains("yep") || text.contains("yeah");
     }
 
-    private String normalizeProvider(String text) {
-        if (text.contains("gmail"))   return "gmail";
-        if (text.contains("yahoo"))   return "yahoo";
-        if (text.contains("outlook")) return "outlook";
-        if (text.contains("hotmail")) return "hotmail";
-        if (text.contains("icloud"))  return "icloud";
-        return text.replaceAll("\\s+", "").toLowerCase();
+    private String normalizeSchoolId(String text) {
+        String digits = convertNumberWords(text).replaceAll("[^0-9]", "");
+        if (digits.length() >= 3) {
+            return digits.substring(0, 2) + "-" + digits.substring(2);
+        }
+        return digits;
     }
 
-    private String normalizeExtension(String text) {
-        if (text.contains("com"))    return "com";
-        if (text.contains("ph"))     return "ph";
-        if (text.contains("edu"))    return "edu";
-        if (text.contains("net"))    return "net";
-        if (text.contains("org"))    return "org";
-        if (text.contains("gov"))    return "gov";
-        return text.replaceAll("\\s+", "").toLowerCase();
+    private String convertNumberWords(String input) {
+        return input
+                .replace("zero", "0").replace("one", "1").replace("two", "2")
+                .replace("three", "3").replace("four", "4").replace("five", "5")
+                .replace("six", "6").replace("seven", "7").replace("eight", "8")
+                .replace("nine", "9");
     }
 
     private void retryOrStop(String message) {
@@ -908,11 +852,10 @@ public class LoginActivity extends AppCompatActivity {
     }
 
     private void loginUser() {
-        String email    = emailInput.getText().toString().trim().toLowerCase(Locale.US);
+        String schoolId = schoolIdInput.getText().toString().trim();
         String password = passwordInput.getText().toString().trim();
 
-        if (email.isEmpty()) { emailInput.setError("Email required"); emailInput.requestFocus(); return; }
-        if (!Patterns.EMAIL_ADDRESS.matcher(email).matches()) { emailInput.setError("Invalid email"); emailInput.requestFocus(); return; }
+        if (schoolId.isEmpty()) { schoolIdInput.setError("School ID required"); schoolIdInput.requestFocus(); return; }
         if (password.isEmpty()) { passwordInput.setError("Password required"); passwordInput.requestFocus(); return; }
 
         loginButton.setEnabled(false);
@@ -920,7 +863,7 @@ public class LoginActivity extends AppCompatActivity {
         setVoiceStatus("Logging in...");
 
         // Now calls a server-side RPC (student_login) instead of a raw
-        // `students?email=eq...&password=eq...` table query — RLS on the
+        // `students?school_id=eq...&password=eq...` table query — RLS on the
         // students table no longer needs a wide-open SELECT policy for
         // login to work, since the function checks credentials internally.
         String url = ApiConfig.SUPABASE_URL + "/rest/v1/rpc/student_login";
@@ -928,8 +871,8 @@ public class LoginActivity extends AppCompatActivity {
         JSONObject rpcBody = new JSONObject();
         String bodyStr;
         try {
-            rpcBody.put("p_email", email);
-            rpcBody.put("p_password", password);
+            rpcBody.put("p_school_id", schoolId);
+            rpcBody.put("p_password",  password);
             bodyStr = rpcBody.toString();
         } catch (Exception e) {
             loginButton.setEnabled(true);
@@ -944,7 +887,7 @@ public class LoginActivity extends AppCompatActivity {
                 response -> {
                     loginButton.setEnabled(true);
                     voiceLoginButton.setEnabled(true);
-                    handleLoginResponse(response, email, password);
+                    handleLoginResponse(response, schoolId, password);
                 },
                 error -> {
                     loginButton.setEnabled(true);
@@ -988,13 +931,13 @@ public class LoginActivity extends AppCompatActivity {
         requestQueue.add(request);
     }
 
-    private void handleLoginResponse(org.json.JSONArray response, String email, String password) {
+    private void handleLoginResponse(org.json.JSONArray response, String loginSchoolId, String password) {
         try {
             if (response == null || response.length() == 0) {
                 setVoiceStatus("Invalid account.");
-                lastSpokenInstruction = "Incorrect email or password. Please try again.";
+                lastSpokenInstruction = "Incorrect School ID or password. Please try again.";
                 say(lastSpokenInstruction, null);
-                Toast.makeText(this, "Invalid email or password.", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Invalid School ID or password.", Toast.LENGTH_LONG).show();
                 shakeView(mainPanel);
                 return;
             }
@@ -1016,19 +959,29 @@ public class LoginActivity extends AppCompatActivity {
             String middleName   = student.optString("middle_name", "");
             String lastName     = student.optString("last_name", "");
             String age          = student.optString("age", "");
-            String schoolId     = student.optString("school_id", "");
-            String studentEmail = student.optString("email", email);
+            String schoolId     = student.optString("school_id", loginSchoolId);
+            String studentEmail = student.optString("email", "");
             String impairment   = student.optString("impairment_level", "");
             String textSize     = student.optString("recommended_text_size", "");
             String yearLevel    = student.optString("year_level", "");
+            String section      = student.optString("section", "");
             String sessionToken = student.optString("session_token", "");
 
             authManager.saveLoggedInStudent(studentId, firstName, middleName, lastName,
                     age, schoolId, studentEmail, sessionToken);
 
+            // Bring this account's saved assistant voice / reading speed from the database, so they
+            // follow the account to this phone. (This phone's own per-account copy is used until it lands.)
+            VoiceSettingsSync.refresh(getApplicationContext());
+
             if (!yearLevel.trim().isEmpty()) {
                 getSharedPreferences("VisualEyesPrefs", MODE_PRIVATE).edit()
                         .putString("yearLevel", yearLevel)
+                        .apply();
+            }
+            if (!section.trim().isEmpty()) {
+                getSharedPreferences("VisualEyesPrefs", MODE_PRIVATE).edit()
+                        .putString("section", section)
                         .apply();
             }
 
@@ -1043,7 +996,7 @@ public class LoginActivity extends AppCompatActivity {
                 setVoiceStatus("Login successful.");
                 lastSpokenInstruction = "Login successful. Opening home.";
                 say(lastSpokenInstruction, () ->
-                        openNextScreen(HomeActivity.class));
+                        openNextScreen(MainActivity.class));
             } else {
                 authManager.setProfileCompleted(false);
                 setVoiceStatus("Login successful.");
@@ -1073,7 +1026,43 @@ public class LoginActivity extends AppCompatActivity {
         }, 500);
     }
 
+    private static final String[] MONTH_NAMES = {
+            "january", "february", "march", "april", "may", "june",
+            "july", "august", "september", "october", "november", "december"
+    };
+
+    /** The login password is the student's birthdate — parses a spoken date
+     *  ("February 27 2005") into "MM-DD-YYYY" to match how student_register
+     *  derives the stored password from p_birthdate. Falls back to the raw
+     *  free-text cleanup below when no full date can be found, so typed-then-
+     *  read-back or non-date passwords (older accounts, edge cases) still work. */
+    private String parseSpokenBirthdatePassword(String input) {
+        String cleaned = convertNumberWords(input.toLowerCase(Locale.US))
+                .replaceAll("\\b(\\d+)(st|nd|rd|th)\\b", "$1");
+
+        int month = -1;
+        for (int i = 0; i < MONTH_NAMES.length; i++) {
+            if (cleaned.contains(MONTH_NAMES[i])) { month = i + 1; break; }
+        }
+
+        java.util.regex.Matcher yearMatcher =
+                java.util.regex.Pattern.compile("\\b(19|20)\\d{2}\\b").matcher(cleaned);
+        int year = yearMatcher.find() ? Integer.parseInt(yearMatcher.group()) : -1;
+
+        String withoutMonthYear = month != -1 ? cleaned.replace(MONTH_NAMES[month - 1], "") : cleaned;
+        if (year != -1) withoutMonthYear = withoutMonthYear.replaceAll("\\b(19|20)\\d{2}\\b", "");
+        java.util.regex.Matcher dayMatcher =
+                java.util.regex.Pattern.compile("\\b\\d{1,2}\\b").matcher(withoutMonthYear);
+        int day = dayMatcher.find() ? Integer.parseInt(dayMatcher.group()) : -1;
+
+        if (month == -1 || year == -1 || day < 1 || day > 31) return null;
+        return String.format(Locale.US, "%02d-%02d-%04d", month, day, year);
+    }
+
     private String processSpokenPassword(String spoken) {
+        String birthdatePassword = parseSpokenBirthdatePassword(spoken);
+        if (birthdatePassword != null) return birthdatePassword;
+
         String p     = spoken.trim();
         String lower = p.toLowerCase(Locale.US);
         String[] prefixes = {
@@ -1121,8 +1110,7 @@ public class LoginActivity extends AppCompatActivity {
     }
 
     private void setupPressAnimations() {
-        for (View v : new View[]{loginButton, voiceLoginButton, registerText,
-                forgotPasswordText, togglePassword}) {
+        for (View v : new View[]{loginButton, voiceLoginButton, registerText, togglePassword}) {
             if (v == null) continue;
             v.setOnTouchListener((view, event) -> {
                 switch (event.getAction()) {
@@ -1151,8 +1139,8 @@ public class LoginActivity extends AppCompatActivity {
 
     private void animateLoginEntrance() {
         if (logoImage != null) UiAnim.popIn(logoImage, 0);
-        View[] views = { txtTitle, mainPanel, emailInput, passwordInput,
-                loginButton, voiceLoginButton, registerText, forgotPasswordText, txtVoiceStatus };
+        View[] views = { txtTitle, mainPanel, schoolIdInput, passwordInput,
+                loginButton, voiceLoginButton, registerText, txtVoiceStatus };
         for (int i = 0; i < views.length; i++) {
             View v = views[i];
             if (v == null) continue;

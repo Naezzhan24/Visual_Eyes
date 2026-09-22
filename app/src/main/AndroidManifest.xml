@@ -83,27 +83,17 @@
             android:windowSoftInputMode="adjustResize"
             android:configChanges="fontScale|screenSize|orientation|keyboardHidden"/>
 
-        <!-- PASSWORD RECOVERY -->
-        <activity
-            android:name=".ForgotPasswordActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize" />
-        <activity
-            android:name=".ResetPasswordActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize" />
-
         <!-- TEXT SIZE TEST -->
         <activity
             android:name=".TextSizeTestActivity"
             android:exported="false" />
-
-        <!-- MAIN APP -->
         <activity
-            android:name=".HomeActivity"
+            android:name=".AssessmentResultActivity"
             android:exported="false" />
+
+        <!-- MAIN APP — hosts Home/Materials/Profile as fragments -->
         <activity
-            android:name=".MaterialsActivity"
+            android:name=".MainActivity"
             android:exported="false" />
         <activity
             android:name=".MaterialViewerActivity"
@@ -120,9 +110,11 @@
             android:screenOrientation="portrait"
             android:configChanges="fontScale|uiMode" />
 
+        <!-- ASSISTANT VOICE PICKER (opened from Profile) -->
         <activity
-            android:name=".ProfileActivity"
-            android:exported="false" />
+            android:name=".VoiceSettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
 
         <!-- HELP / USER GUIDE -->
         <activity

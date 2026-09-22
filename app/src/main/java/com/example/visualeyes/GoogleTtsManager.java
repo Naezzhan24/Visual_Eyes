@@ -85,6 +85,15 @@ public class GoogleTtsManager {
     }
 
     public void speak(String text, float speakingRate, TtsCallback callback) {
+        speak(text, speakingRate, TtsVoiceManager.getOption(context), callback);
+    }
+
+    /**
+     * Speaks with a specific voice — used to let a student hear a voice before choosing it.
+     * The other overloads use the voice the current student picked (or the default).
+     */
+    public void speak(String text, float speakingRate, TtsVoiceManager.Option voiceOption,
+                      TtsCallback callback) {
         if (text == null || text.isEmpty()
                 || (respectVoicePreferences && !VoicePreferences.isTtsEnabled(context))) {
             if (callback != null) mainHandler.post(callback::onDone);
@@ -93,6 +102,10 @@ public class GoogleTtsManager {
 
         stopSpeaking();
         final int myGeneration = speechGeneration;
+        // Every screen passes its own base rate; the student's reading-speed preference (set from
+        // Feedback) scales all of them together, so one change applies across the whole app.
+        final float effectiveRate = Math.max(0.5f, Math.min(2.0f,
+                speakingRate * SpeechRateManager.getScale(context)));
 
         executor.execute(() -> {
             try {
@@ -101,12 +114,12 @@ public class GoogleTtsManager {
 
                 JSONObject voice = new JSONObject();
                 voice.put("languageCode", "en-US");
-                voice.put("name", "en-US-Neural2-F");
-                voice.put("ssmlGender", "FEMALE");
+                voice.put("name", voiceOption.id);
+                voice.put("ssmlGender", voiceOption.gender);
 
                 JSONObject audioConfig = new JSONObject();
                 audioConfig.put("audioEncoding", "MP3");
-                audioConfig.put("speakingRate", speakingRate);
+                audioConfig.put("speakingRate", effectiveRate);
                 audioConfig.put("pitch", 0.0);
 
                 JSONObject requestBody = new JSONObject();
@@ -214,6 +227,10 @@ public class GoogleTtsManager {
                     }
                 });
                 requestPlaybackFocus();
+                // Same preferences for the offline fallback voice (its own base rate is 0.95): the
+                // student's speed, and a phone voice of the gender they chose.
+                sSharedAndroidTts.setSpeechRate(0.95f * SpeechRateManager.getScale(context));
+                DeviceVoiceGuide.apply(context, sSharedAndroidTts, TtsVoiceManager.getOption(context));
                 sSharedAndroidTts.speak(text, TextToSpeech.QUEUE_FLUSH, null, uid);
             } else {
                 if (callback != null) callback.onDone();
