@@ -1,0 +1,16 @@
+# XcodeGen regenerates these from project.yml — don't commit generated project files.
+*.xcodeproj/
+*.xcworkspace/
+Generated/
+
+# Xcode user state / build artifacts
+DerivedData/
+.build/
+xcuserdata/
+*.xcuserstate
+*.moved-aside
+
+# Vosk model is large; drop the actual model binaries in place locally,
+# don't rely on git for the 205MB asset unless Git LFS is set up.
+VisualEyes/Resources/vosk-model-en-us-0.22-lgraph/*
+!VisualEyes/Resources/vosk-model-en-us-0.22-lgraph/.gitkeep
