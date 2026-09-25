@@ -18,31 +18,31 @@ struct PrivacyPolicyView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text(Self.lastUpdated)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-
+            VStack(alignment: .leading, spacing: 12) {
                 Button {
                     Task { await readAllAloud() }
                 } label: {
                     Label(isSpeaking ? "Reading…" : "Read This Policy Aloud", systemImage: "speaker.wave.2.fill")
-                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(MaroonButtonStyle(height: 52, fontSize: 15))
                 .disabled(isSpeaking)
+                .padding(.bottom, 4)
+
+                Text(Self.lastUpdated)
+                    .font(.system(size: 12).italic())
+                    .foregroundStyle(VE.textOnPrimary)
 
                 ForEach(Self.sections, id: \.heading) { section in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(section.heading).font(.headline)
-                        Text(section.body).font(.body).foregroundStyle(.secondary)
-                    }
+                    InfoSectionCard(heading: section.heading, text: section.body)
                 }
             }
-            .padding()
+            .padding(.horizontal, 18)
+            .padding(.top, 4)
+            .padding(.bottom, 24)
         }
-        .navigationTitle("Privacy Policy")
-        .navigationBarTitleDisplayMode(.inline)
+        .scrollIndicators(.hidden)
+        .maroonScreen(title: "Privacy Policy")
+        .onDisappear { CloudTTSService.shared.stop() }
     }
 
     private func readAllAloud() async {

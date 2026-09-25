@@ -11,10 +11,13 @@ struct MaterialsRepository {
         self.client = client
     }
 
+    /// Newest first, so `first` is the latest material — HomeFragment
+    /// picks the row with the greatest `upload_date` the same way.
     func fetchMaterials(sessionToken: String) async throws -> [LearningMaterial] {
-        try await client.callRPCArray("get_student_materials", body: [
+        let materials: [LearningMaterial] = try await client.callRPCArray("get_student_materials", body: [
             "p_session_token": sessionToken
         ])
+        return materials.sorted { ($0.uploadDate ?? "") > ($1.uploadDate ?? "") }
     }
 
     /// Short-lived (1 hour) signed download URL for a material's PDF in

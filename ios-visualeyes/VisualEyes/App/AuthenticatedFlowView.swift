@@ -38,6 +38,9 @@ struct AuthenticatedFlowView: View {
         switch stage {
         case .determining:
             ProgressView()
+                .tint(.white)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .maroonBackground()
 
         case .assessment(let isRetake):
             NavigationStack {

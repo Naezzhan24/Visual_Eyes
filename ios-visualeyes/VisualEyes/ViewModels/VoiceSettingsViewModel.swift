@@ -38,7 +38,7 @@ final class VoiceSettingsViewModel {
 
     func preview(_ voice: AssistantVoice) async {
         isPreviewing = true
-        await tts.speak("Hi! This is how I sound.", voice: voice)
+        await tts.speak("Hi! This is how I sound.", voice: voice, respectsPreferences: false)
         isPreviewing = false
     }
 

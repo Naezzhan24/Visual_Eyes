@@ -44,23 +44,50 @@ final class SpeechCascadeSession {
     func listen(
         locale: Locale = Locale(identifier: "en-US"),
         contextualStrings: [String] = [],
+        respectsPreferences: Bool = true,
+        cloudFallbackOnSilence: Bool = true,
         onEvent: @escaping (Event) -> Void
     ) {
         generation += 1
         let myGeneration = generation
 
+        if respectsPreferences && !VoicePreferences.isSttEnabled {
+            onEvent(.error("Speech-to-Text is turned off. You can turn it on in Profile."))
+            return
+        }
+
         Task {
             do {
                 let stream = tier1.recognize(locale: locale, contextualStrings: contextualStrings)
+                var heardFinal = false
                 for try await event in stream {
                     guard myGeneration == self.generation else { return }
                     switch event {
                     case .partial(let text): onEvent(.partial(text))
-                    case .final(let text): onEvent(.final(text))
+                    case .final(let text):
+                        heardFinal = true
+                        onEvent(.final(text))
                     }
+                }
+                // Tier 1 ended without a final result (silence, or it gave
+                // up). Previously nothing was emitted here, leaving the
+                // caller stuck on "Listening…" forever. Cascade to Tier 2,
+                // like SttCascadeSession does on an empty result.
+                if !heardFinal {
+                    guard myGeneration == self.generation else { return }
+                    guard cloudFallbackOnSilence else { onEvent(.timedOut); return }
+                    await fallbackToTier2(contextPhrases: contextualStrings, generation: myGeneration, onEvent: onEvent)
                 }
             } catch {
                 guard myGeneration == self.generation else { return }
+                // Always-on listeners (the tabs) pass false: nobody spoke,
+                // so re-recording the silence for the cloud would just send
+                // audio to Google every few seconds for nothing. Real
+                // recognizer errors still cascade.
+                if !cloudFallbackOnSilence, case SpeechRecognitionError.timedOut = error {
+                    onEvent(.timedOut)
+                    return
+                }
                 await fallbackToTier2(contextPhrases: contextualStrings, generation: myGeneration, onEvent: onEvent)
             }
         }

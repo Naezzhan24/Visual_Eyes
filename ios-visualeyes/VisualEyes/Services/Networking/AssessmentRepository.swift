@@ -18,12 +18,16 @@ struct AssessmentRepository {
         yesCount: Int,
         noCount: Int
     ) async throws {
-        _ = try await client.callRPCString("student_save_assessment", body: [
+        let result = try await client.callRPCString("student_save_assessment", body: [
             "p_session_token": sessionToken,
             "p_impairment_level": impairmentLevel,
             "p_recommended_text_size": recommendedTextSize,
             "p_yes_count": yesCount,
             "p_no_count": noCount
         ])
+        // HTTP 200 either way; `false` means the RPC rejected the save.
+        guard result.trimmingCharacters(in: .whitespacesAndNewlines) == "true" else {
+            throw SupabaseError.httpError(statusCode: 200, body: "Assessment was not saved.")
+        }
     }
 }

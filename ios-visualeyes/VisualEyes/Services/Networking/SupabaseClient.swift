@@ -69,7 +69,11 @@ actor SupabaseClient {
     /// Requests a short-lived signed URL for a file in the private
     /// "materials" storage bucket, mirroring SignedUrlHelper.java.
     func signedMaterialURL(path: String, expiresIn: Int = 3600) async throws -> URL {
-        let url = Config.storageBaseURL.appendingPathComponent("object/sign/materials/\(path)")
+        let storagePath = Self.materialStoragePath(from: path)
+        guard !storagePath.isEmpty else {
+            throw SupabaseError.decodingFailed("Material has no file path")
+        }
+        let url = Config.storageBaseURL.appendingPathComponent("object/sign/materials/\(storagePath)")
         let request = try makeRequest(url: url, body: ["expiresIn": expiresIn])
         let (data, response) = try await session.data(for: request)
         try Self.validate(data: data, response: response)
@@ -85,10 +89,32 @@ actor SupabaseClient {
         } catch {
             throw SupabaseError.decodingFailed(String(describing: error))
         }
-        guard let full = URL(string: decoded.signedURL, relativeTo: Config.storageBaseURL)?.absoluteURL else {
+        // `signedURL` is "/object/sign/…?token=…", relative to /storage/v1.
+        // Resolving it with URL(relativeTo:) would drop "/storage/v1"
+        // because of the leading slash, so append it like SignedUrlHelper.
+        let base = Config.storageBaseURL.absoluteString
+        let suffix = decoded.signedURL.hasPrefix("/") ? decoded.signedURL : "/" + decoded.signedURL
+        guard let full = URL(string: base + suffix) else {
             throw SupabaseError.decodingFailed("Signed URL response was not a valid URL")
         }
         return full
+    }
+
+    /// Normalizes a stored `file_path` to the raw path inside the
+    /// "materials" bucket, matching HomeFragment.buildFileUrl +
+    /// SignedUrlHelper.extractStoragePath: accepts full public URLs,
+    /// backslashes, leading slashes and a leading "materials/".
+    static func materialStoragePath(from stored: String) -> String {
+        var path = stored.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\", with: "/")
+        let publicPrefix = Config.storageBaseURL.absoluteString + "/object/public/materials/"
+        if path.hasPrefix(publicPrefix) {
+            path = String(path.dropFirst(publicPrefix.count))
+        }
+        path = path.removingPercentEncoding ?? path
+        while path.hasPrefix("/") { path.removeFirst() }
+        if path.hasPrefix("materials/") { path = String(path.dropFirst("materials/".count)) }
+        return path
     }
 
     /// Inspects the HTTP status + body for the error signatures the

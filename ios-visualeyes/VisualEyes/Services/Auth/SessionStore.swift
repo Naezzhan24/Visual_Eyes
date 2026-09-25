@@ -2,10 +2,13 @@ import Foundation
 import Observation
 
 enum LoginError: LocalizedError {
+    case invalidCredentials
     case notApproved(status: String)
 
     var errorDescription: String? {
         switch self {
+        case .invalidCredentials:
+            return "Incorrect School ID or password. Your password is your birthdate (MM-DD-YYYY)."
         case .notApproved(let status):
             return status == "pending"
                 ? "Your account is still waiting for instructor approval."
@@ -75,19 +78,88 @@ final class SessionStore {
                 sessionToken: token,
                 approvalStatus: "approved"
             )
-        } catch {
+        } catch SupabaseError.sessionExpired {
             KeychainStore.remove(forKey: sessionTokenKey)
+        } catch {
+            // Offline or server hiccup: keep the token so the next launch
+            // can retry, instead of silently logging the student out.
         }
     }
 
     func login(schoolId: String, password: String) async throws {
-        let loggedIn = try await authRepository.login(schoolId: schoolId, password: password)
-        guard loggedIn.approvalStatus == "approved" else {
+        let loggedIn: Student
+        do {
+            loggedIn = try await authRepository.login(schoolId: schoolId, password: password)
+        } catch SupabaseError.emptyResponse {
+            // student_login returns [] (HTTP 200) for a wrong School ID or
+            // password, same as LoginActivity's `response.length() == 0`.
+            throw LoginError.invalidCredentials
+        }
+        guard loggedIn.approvalStatus.lowercased() == "approved" else {
             throw LoginError.notApproved(status: loggedIn.approvalStatus)
         }
+        guard !loggedIn.sessionToken.isEmpty else {
+            throw SupabaseError.emptyResponse
+        }
         student = loggedIn
+        if let size = loggedIn.recommendedTextSize {
+            // Each student starts from their own assessed size on this phone.
+            FontSizePreferences.saveRecommendedSize(size)
+        }
         lastSchoolId = schoolId
         KeychainStore.set(loggedIn.sessionToken, forKey: sessionTokenKey)
+    }
+
+    /// Re-reads the student's details via `get_student_profile`, like
+    /// ProfileFragment does on open. `student_login` doesn't return
+    /// `year_level`, so this is what fills it in after a fresh login.
+    func refreshProfile() async {
+        guard let current = student, !current.sessionToken.isEmpty else { return }
+        do {
+            let profile = try await authRepository.fetchProfile(sessionToken: current.sessionToken)
+            student = Student(
+                id: current.id,
+                firstName: profile.firstName,
+                middleName: profile.middleName,
+                lastName: profile.lastName,
+                age: profile.age ?? current.age,
+                schoolId: profile.schoolId,
+                email: profile.email,
+                impairmentLevel: profile.impairmentLevel,
+                recommendedTextSize: profile.recommendedTextSize,
+                yearLevel: profile.yearLevel,
+                section: profile.section,
+                sessionToken: current.sessionToken,
+                approvalStatus: current.approvalStatus
+            )
+        } catch SupabaseError.sessionExpired {
+            forceLogout()
+        } catch {
+            // Offline or transient — keep showing what we already have.
+        }
+    }
+
+    /// Mirrors a just-saved assessment into the in-memory student so
+    /// Profile shows the new level without waiting for a relaunch.
+    func applyAssessment(impairmentLevel: String, recommendedTextSize: Double) {
+        // TextSizeTestActivity: FontSizeManager.saveRecommendedSize(...)
+        FontSizePreferences.saveRecommendedSize(recommendedTextSize)
+        guard let current = student else { return }
+        student = Student(
+            id: current.id,
+            firstName: current.firstName,
+            middleName: current.middleName,
+            lastName: current.lastName,
+            age: current.age,
+            schoolId: current.schoolId,
+            email: current.email,
+            impairmentLevel: impairmentLevel,
+            recommendedTextSize: recommendedTextSize,
+            yearLevel: current.yearLevel,
+            section: current.section,
+            sessionToken: current.sessionToken,
+            approvalStatus: current.approvalStatus
+        )
     }
 
     func logout() {

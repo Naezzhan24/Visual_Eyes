@@ -85,3 +85,55 @@ struct EnrolledStudentLookup: Codable, Equatable {
         case section
     }
 }
+
+// Decoders live in extensions so the memberwise initializers stay available.
+
+extension Student {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.lenientInt(.id)
+        firstName = c.lenientString(.firstName) ?? ""
+        middleName = c.lenientString(.middleName)
+        lastName = c.lenientString(.lastName) ?? ""
+        age = c.lenientInt(.age)
+        schoolId = c.lenientString(.schoolId) ?? ""
+        email = c.lenientString(.email)
+        impairmentLevel = c.lenientString(.impairmentLevel)
+        recommendedTextSize = c.lenientDouble(.recommendedTextSize)
+        yearLevel = c.lenientString(.yearLevel)
+        section = c.lenientString(.section)
+        // A pending account comes back without a session token; the
+        // approval check in SessionStore.login handles that case.
+        sessionToken = c.lenientString(.sessionToken) ?? ""
+        approvalStatus = c.lenientString(.approvalStatus) ?? "pending"
+    }
+}
+
+extension StudentProfile {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        firstName = c.lenientString(.firstName) ?? ""
+        middleName = c.lenientString(.middleName)
+        lastName = c.lenientString(.lastName) ?? ""
+        schoolId = c.lenientString(.schoolId) ?? ""
+        email = c.lenientString(.email)
+        age = c.lenientInt(.age)
+        yearLevel = c.lenientString(.yearLevel)
+        section = c.lenientString(.section)
+        impairmentLevel = c.lenientString(.impairmentLevel)
+        recommendedTextSize = c.lenientDouble(.recommendedTextSize)
+    }
+}
+
+extension EnrolledStudentLookup {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        firstName = c.lenientString(.firstName) ?? ""
+        middleName = c.lenientString(.middleName)
+        lastName = c.lenientString(.lastName) ?? ""
+        birthdate = c.lenientString(.birthdate) ?? ""
+        yearLevel = c.lenientString(.yearLevel)
+        email = c.lenientString(.email)
+        section = c.lenientString(.section)
+    }
+}

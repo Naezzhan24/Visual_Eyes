@@ -21,27 +21,27 @@ struct HelpView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 12) {
                 Button {
                     Task { await readAllAloud() }
                 } label: {
                     Label(isSpeaking ? "Reading…" : "Read This Guide Aloud", systemImage: "speaker.wave.2.fill")
-                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(MaroonButtonStyle(height: 52, fontSize: 15))
                 .disabled(isSpeaking)
+                .padding(.bottom, 4)
 
                 ForEach(Self.sections, id: \.heading) { section in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(section.heading).font(.headline)
-                        Text(section.body).font(.body).foregroundStyle(.secondary)
-                    }
+                    InfoSectionCard(heading: section.heading, text: section.body)
                 }
             }
-            .padding()
+            .padding(.horizontal, 18)
+            .padding(.top, 4)
+            .padding(.bottom, 24)
         }
-        .navigationTitle("Help & User Guide")
-        .navigationBarTitleDisplayMode(.inline)
+        .scrollIndicators(.hidden)
+        .maroonScreen(title: "Help & User Guide")
+        .onDisappear { CloudTTSService.shared.stop() }
     }
 
     private func readAllAloud() async {

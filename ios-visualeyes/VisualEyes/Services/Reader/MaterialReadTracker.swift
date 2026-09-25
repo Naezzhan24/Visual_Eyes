@@ -17,4 +17,31 @@ enum MaterialReadTracker {
     static func saveChunkIndex(_ index: Int, studentSchoolId: String, materialId: Int) {
         UserDefaults.standard.set(index, forKey: key(studentSchoolId: studentSchoolId, materialId: materialId))
     }
+
+    // MARK: Opened / New — drives the Sent Materials drawer's dot and
+    // "Unread first" sort (MaterialReadTracker.isOpened/markOpened).
+
+    private static func openedKey(studentSchoolId: String) -> String {
+        "opened_materials_\(studentSchoolId)"
+    }
+
+    static func isOpened(materialId: Int, studentSchoolId: String) -> Bool {
+        let opened = UserDefaults.standard.array(forKey: openedKey(studentSchoolId: studentSchoolId)) as? [Int] ?? []
+        return opened.contains(materialId)
+    }
+
+    /// The material opened most recently — MaterialsFragment's
+    /// `getLastOpened()`, used as the "featured" material.
+    static func lastOpenedId(studentSchoolId: String) -> Int? {
+        UserDefaults.standard.object(forKey: "last_opened_material_\(studentSchoolId)") as? Int
+    }
+
+    static func markOpened(materialId: Int, studentSchoolId: String) {
+        UserDefaults.standard.set(materialId, forKey: "last_opened_material_\(studentSchoolId)")
+        let key = openedKey(studentSchoolId: studentSchoolId)
+        var opened = UserDefaults.standard.array(forKey: key) as? [Int] ?? []
+        guard !opened.contains(materialId) else { return }
+        opened.append(materialId)
+        UserDefaults.standard.set(opened, forKey: key)
+    }
 }

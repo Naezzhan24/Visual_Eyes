@@ -28,6 +28,9 @@ final class CloudTTSService: NSObject {
     private let fallbackSynthesizer = AVSpeechSynthesizer()
     private let session: URLSession
     private var playbackContinuation: CheckedContinuation<Void, Never>?
+    /// Bumped by every speak/stop, so a superseded prompt never plays.
+    private var generation = 0
+    private var currentUtterance: AVSpeechUtterance?
 
     init(session: URLSession = .shared) {
         self.session = session
@@ -40,11 +43,30 @@ final class CloudTTSService: NSObject {
     /// account). Falls back to the on-device `AVSpeechSynthesizer` (no
     /// network) if the cloud call fails for any reason — same fallback
     /// behavior as `GoogleTtsManager.java`. Suspends until speech finishes.
-    func speak(_ text: String, voice: AssistantVoice = .default, rateScale: Double = 1.0) async {
+    /// `respectsPreferences: false` is for screens that only work with
+    /// voice (assessment, feedback, voice preview) — see `VoicePreferences`.
+    func speak(
+        _ text: String,
+        voice: AssistantVoice = .default,
+        rateScale: Double = 1.0,
+        respectsPreferences: Bool = true
+    ) async {
         guard !text.isEmpty else { return }
+        if respectsPreferences && !VoicePreferences.isTtsEnabled { return }
 
-        if let data = try? await fetchAudio(text: text, voice: voice, rateScale: rateScale),
-           let player = try? makePlayer(data: data) {
+        // One voice at a time: a new prompt cuts off the previous one
+        // (like GoogleTtsManager stopping before each speak) instead of
+        // talking over it.
+        stop()
+        let myGeneration = generation
+
+        let data = try? await fetchAudio(text: text, voice: voice, rateScale: rateScale)
+        // The download takes a moment; if anything stopped or replaced
+        // this prompt meanwhile (e.g. the student left the screen), drop
+        // it rather than playing it over whatever screen is showing now.
+        guard myGeneration == generation else { return }
+
+        if let data, let player = try? makePlayer(data: data) {
             audioPlayer = player
             await withCheckedContinuation { continuation in
                 playbackContinuation = continuation
@@ -55,12 +77,18 @@ final class CloudTTSService: NSObject {
         }
     }
 
-    /// Stops whatever is currently playing (cloud or fallback) and
-    /// resumes any caller waiting on `speak(_:)` immediately, so a
-    /// screen that's navigating away doesn't hang.
+    /// Stops whatever is currently playing (cloud or fallback), cancels
+    /// any prompt still downloading, and resumes any caller waiting on
+    /// `speak(_:)` immediately, so a screen that's navigating away
+    /// doesn't hang.
     func stop() {
+        generation += 1
         audioPlayer?.stop()
-        fallbackSynthesizer.stopSpeaking(at: .immediate)
+        audioPlayer = nil
+        currentUtterance = nil
+        if fallbackSynthesizer.isSpeaking {
+            fallbackSynthesizer.stopSpeaking(at: .immediate)
+        }
         resumePlaybackContinuation()
     }
 
@@ -120,6 +148,7 @@ final class CloudTTSService: NSObject {
         // scale around the platform default rather than using rateScale
         // as a literal rate value.
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * Float(rateScale)
+        currentUtterance = utterance
         await withCheckedContinuation { continuation in
             playbackContinuation = continuation
             fallbackSynthesizer.speak(utterance)
@@ -134,7 +163,7 @@ final class CloudTTSService: NSObject {
         playbackContinuation = nil
     }
 
-    static func escapeForSSML(_ text: String) -> String {
+    nonisolated static func escapeForSSML(_ text: String) -> String {
         text.replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
@@ -144,6 +173,10 @@ final class CloudTTSService: NSObject {
 extension CloudTTSService: AVAudioPlayerDelegate {
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor in
+            // A player that was already replaced must not end the newer
+            // prompt's wait early.
+            guard player === audioPlayer else { return }
+            audioPlayer = nil
             AudioSessionCoordinator.deactivate()
             resumePlaybackContinuation()
         }
@@ -153,6 +186,8 @@ extension CloudTTSService: AVAudioPlayerDelegate {
 extension CloudTTSService: AVSpeechSynthesizerDelegate {
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in
+            guard utterance === currentUtterance else { return }
+            currentUtterance = nil
             AudioSessionCoordinator.deactivate()
             resumePlaybackContinuation()
         }
@@ -160,6 +195,10 @@ extension CloudTTSService: AVSpeechSynthesizerDelegate {
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
         Task { @MainActor in
+            // stop() already resumed the waiter; a late cancel callback
+            // must not end the next prompt's wait.
+            guard utterance === currentUtterance else { return }
+            currentUtterance = nil
             resumePlaybackContinuation()
         }
     }

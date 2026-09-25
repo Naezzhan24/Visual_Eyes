@@ -35,6 +35,13 @@ final class CloudSTTService: NSObject {
     private let audioEngine = AVAudioEngine()
     private var pcmBuffer = Data()
     private var isRecording = false
+    private var captureContinuation: CheckedContinuation<(data: Data, sampleRate: Double), Error>?
+    /// Bumped per capture so a stale timeout or late tap chunk from a
+    /// previous capture can't finish the current one.
+    private var captureID = 0
+    private var silenceStreakMs = 0
+    private let silenceThreshold: Float = 0.015
+    private let requiredTrailingSilenceMs = 1200
 
     private override init() {
         super.init()
@@ -57,71 +64,106 @@ final class CloudSTTService: NSObject {
     private func capturePCM(maxDuration: Duration) async throws -> (data: Data, sampleRate: Double) {
         try AudioSessionCoordinator.prepareForRecording()
         pcmBuffer = Data()
-        isRecording = true
+        silenceStreakMs = 0
+        captureID += 1
+        let myCaptureID = captureID
 
         let inputNode = audioEngine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
         let sampleRate = inputFormat.sampleRate
-        let minimumCaptureSamples = Int(sampleRate * 0.5) // don't stop before at least 0.5s captured
-
-        var silenceStreakMs = 0
-        let silenceThreshold: Float = 0.015
-        let requiredTrailingSilenceMs = 1200
+        // don't stop before at least 0.5s captured (2 bytes per Int16 sample)
+        let minimumCaptureBytes = Int(sampleRate * 0.5) * 2
 
         return try await withCheckedThrowingContinuation { continuation in
-            var didResume = false
-            func finish(_ result: Result<(Data, Double), Error>) {
-                guard !didResume else { return }
-                didResume = true
-                self.stopCapture()
-                switch result {
-                case .success(let value): continuation.resume(returning: value)
-                case .failure(let error): continuation.resume(throwing: error)
+            // The continuation body runs synchronously on the caller, which
+            // is the main actor.
+            MainActor.assumeIsolated {
+                captureContinuation = continuation
+                isRecording = true
+
+                // The tap fires on a real-time audio thread, so it only
+                // converts samples there and hops to the main actor for all
+                // state (buffer, silence streak, finishing).
+                let tap = Self.makeTapBlock { [weak self] bytes, rms, bufferMs in
+                    Task { @MainActor in
+                        self?.handleCaptured(
+                            bytes, rms: rms, bufferMs: bufferMs,
+                            captureID: myCaptureID,
+                            minimumCaptureBytes: minimumCaptureBytes,
+                            sampleRate: sampleRate
+                        )
+                    }
                 }
-            }
+                inputNode.removeTap(onBus: 0)
+                inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat, block: tap)
 
-            inputNode.removeTap(onBus: 0)
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
-                guard let self, let channelData = buffer.floatChannelData else { return }
-                let frameLength = Int(buffer.frameLength)
-                let samples = UnsafeBufferPointer(start: channelData[0], count: frameLength)
-
-                var int16Samples = [Int16]()
-                int16Samples.reserveCapacity(frameLength)
-                var sumSquares: Float = 0
-                for sample in samples {
-                    let clamped = max(-1.0, min(1.0, sample))
-                    int16Samples.append(Int16(clamped * Float(Int16.max)))
-                    sumSquares += clamped * clamped
+                audioEngine.prepare()
+                do {
+                    try audioEngine.start()
+                } catch {
+                    finishCapture(.failure(CloudSTTError.audioEngineFailure(String(describing: error))))
+                    return
                 }
-                let bytes = int16Samples.withUnsafeBufferPointer { Data(buffer: $0) }
-                self.pcmBuffer.append(bytes)
 
-                let rms = frameLength > 0 ? sqrt(sumSquares / Float(frameLength)) : 0
-                let bufferMs = Int(Double(frameLength) / sampleRate * 1000)
-                if rms < silenceThreshold {
-                    silenceStreakMs += bufferMs
-                } else {
-                    silenceStreakMs = 0
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: maxDuration)
+                    guard let self, self.captureID == myCaptureID else { return }
+                    self.finishCapture(.success((self.pcmBuffer, sampleRate)))
                 }
-                if self.pcmBuffer.count / 2 > minimumCaptureSamples && silenceStreakMs >= requiredTrailingSilenceMs {
-                    finish(.success((self.pcmBuffer, sampleRate)))
-                }
-            }
-
-            audioEngine.prepare()
-            do {
-                try audioEngine.start()
-            } catch {
-                finish(.failure(CloudSTTError.audioEngineFailure(String(describing: error))))
-                return
-            }
-
-            Task {
-                try? await Task.sleep(for: maxDuration)
-                finish(.success((self.pcmBuffer, sampleRate)))
             }
         }
+    }
+
+    /// Built outside the main actor so the returned block isn't inferred as
+    /// main-actor isolated — AVAudioEngine calls it on its own audio thread.
+    private nonisolated static func makeTapBlock(
+        onChunk: @escaping @Sendable (Data, Float, Int) -> Void
+    ) -> AVAudioNodeTapBlock {
+        return { buffer, _ in
+            guard let channelData = buffer.floatChannelData else { return }
+            let frameLength = Int(buffer.frameLength)
+            let samples = UnsafeBufferPointer(start: channelData[0], count: frameLength)
+
+            var int16Samples = [Int16]()
+            int16Samples.reserveCapacity(frameLength)
+            var sumSquares: Float = 0
+            for sample in samples {
+                let clamped = max(-1.0, min(1.0, sample))
+                int16Samples.append(Int16(clamped * Float(Int16.max)))
+                sumSquares += clamped * clamped
+            }
+            let bytes = int16Samples.withUnsafeBufferPointer { Data(buffer: $0) }
+            let rms = frameLength > 0 ? sqrt(sumSquares / Float(frameLength)) : 0
+            let bufferMs = Int(Double(frameLength) / buffer.format.sampleRate * 1000)
+            onChunk(bytes, rms, bufferMs)
+        }
+    }
+
+    private func handleCaptured(
+        _ bytes: Data,
+        rms: Float,
+        bufferMs: Int,
+        captureID myCaptureID: Int,
+        minimumCaptureBytes: Int,
+        sampleRate: Double
+    ) {
+        guard captureID == myCaptureID, captureContinuation != nil else { return }
+        pcmBuffer.append(bytes)
+        if rms < silenceThreshold {
+            silenceStreakMs += bufferMs
+        } else {
+            silenceStreakMs = 0
+        }
+        if pcmBuffer.count > minimumCaptureBytes && silenceStreakMs >= requiredTrailingSilenceMs {
+            finishCapture(.success((pcmBuffer, sampleRate)))
+        }
+    }
+
+    private func finishCapture(_ result: Result<(data: Data, sampleRate: Double), Error>) {
+        guard let continuation = captureContinuation else { return }
+        captureContinuation = nil
+        stopCapture()
+        continuation.resume(with: result)
     }
 
     private func stopCapture() {

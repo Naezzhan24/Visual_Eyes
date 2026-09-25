@@ -41,6 +41,45 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(material.filePath, "materials/7.pdf")
     }
 
+    func testPendingLoginRowWithNullTokenAndLooseTypesStillDecodes() throws {
+        // A pending account has no session token yet; `age` comes from
+        // EXTRACT (numeric) and older rows store the text size as text.
+        let json = """
+        {"id": 5, "first_name": "Ana", "middle_name": null, "last_name": "Santos",
+         "age": 21.0, "school_id": "2024-0002", "email": null,
+         "impairment_level": null, "recommended_text_size": "24sp",
+         "section": null, "session_token": null, "approval_status": "pending"}
+        """.data(using: .utf8)!
+
+        let student = try JSONDecoder().decode(Student.self, from: json)
+        XCTAssertEqual(student.age, 21)
+        XCTAssertEqual(student.recommendedTextSize, 24)
+        XCTAssertEqual(student.sessionToken, "")
+        XCTAssertEqual(student.approvalStatus, "pending")
+        XCTAssertNil(student.yearLevel)
+    }
+
+    func testMaterialRowWithNullFieldsDoesNotBreakTheList() throws {
+        let json = """
+        [{"id": 1, "title": "A", "file_path": "a.pdf", "upload_date": "2026-09-01"},
+         {"id": 2, "title": null, "file_path": null, "upload_date": null}]
+        """.data(using: .utf8)!
+
+        let materials = try JSONDecoder().decode([LearningMaterial].self, from: json)
+        XCTAssertEqual(materials.count, 2)
+        XCTAssertEqual(materials[1].title, "Learning Material")
+        XCTAssertEqual(materials[1].filePath, "")
+    }
+
+    func testMaterialStoragePathMatchesAndroidNormalization() {
+        let publicURL = Config.supabaseURL.absoluteString
+            + "/storage/v1/object/public/materials/instructor_5/My%20Lesson.pdf"
+        XCTAssertEqual(SupabaseClient.materialStoragePath(from: publicURL), "instructor_5/My Lesson.pdf")
+        XCTAssertEqual(SupabaseClient.materialStoragePath(from: "/materials/instructor_5/a.pdf"), "instructor_5/a.pdf")
+        XCTAssertEqual(SupabaseClient.materialStoragePath(from: "instructor_5\\a.pdf"), "instructor_5/a.pdf")
+        XCTAssertEqual(SupabaseClient.materialStoragePath(from: "  instructor_5/a.pdf "), "instructor_5/a.pdf")
+    }
+
     func testAssistantVoiceIDsMatchAndroidTtsVoiceManager() {
         // These four IDs must stay byte-identical to TtsVoiceManager.java's
         // OPTIONS so a student's saved voice preference means the same

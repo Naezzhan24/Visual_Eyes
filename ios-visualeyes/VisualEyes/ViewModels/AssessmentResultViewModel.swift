@@ -22,12 +22,12 @@ final class AssessmentResultViewModel {
     init(
         summary: AssessmentSummary,
         tts: CloudTTSService = .shared,
-        cascade: SpeechCascadeSession = SpeechCascadeSession(),
+        cascade: SpeechCascadeSession? = nil,
         micPermission: MicPermissionService = .shared
     ) {
         self.summary = summary
         self.tts = tts
-        self.cascade = cascade
+        self.cascade = cascade ?? SpeechCascadeSession()
         self.micPermission = micPermission
     }
 
@@ -85,9 +85,17 @@ final class AssessmentResultViewModel {
 
     func finish() {
         guard !didFinish else { return }
+        stopEverything()
+        onContinue?()
+    }
+
+    /// Tapping Continue mid-summary (or leaving) must not let the summary
+    /// keep talking over Home/Profile.
+    func stopEverything() {
         didFinish = true
         autoContinueTask?.cancel()
         cascade.stop()
-        onContinue?()
+        tts.stop()
+        isListening = false
     }
 }

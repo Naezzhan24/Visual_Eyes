@@ -107,33 +107,60 @@ final class SpeechRecognitionService: NSObject {
                 return
             }
 
+            // SFSpeechRecognizer never ends a live-audio request on its own
+            // when the speaker goes quiet, so a short "yes" stayed partial
+            // until the watchdog threw it away as a timeout. Mirror
+            // Android's EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS:
+            // after 1.5s with no new partial, the last partial is final.
+            let state = RecognitionState()
+
+            func finishWithLastPartial(orThrow error: Error) {
+                guard state.markFinished() else { return }
+                if let last = state.lastPartial, !last.isEmpty {
+                    continuation.yield(.final(last))
+                    continuation.finish()
+                } else {
+                    continuation.finish(throwing: error)
+                }
+                Task { @MainActor in self.stopListening() }
+            }
+
             let watchdogTask = Task {
                 try? await Task.sleep(for: watchdog)
                 guard !Task.isCancelled else { return }
-                continuation.finish(throwing: SpeechRecognitionError.timedOut)
-                self.stopListening()
+                finishWithLastPartial(orThrow: SpeechRecognitionError.timedOut)
             }
 
-            recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-                guard let self else { return }
+            recognitionTask = recognizer.recognitionTask(with: request) { result, error in
                 if let result {
                     let text = result.bestTranscription.formattedString
-                    continuation.yield(result.isFinal ? .final(text) : .partial(text))
                     if result.isFinal {
+                        guard state.markFinished() else { return }
                         watchdogTask.cancel()
+                        state.cancelSilenceTimer()
+                        continuation.yield(.final(text))
                         continuation.finish()
-                        self.stopListening()
+                        Task { @MainActor in self.stopListening() }
+                        return
+                    }
+                    guard !state.isFinished else { return }
+                    state.lastPartial = text
+                    continuation.yield(.partial(text))
+                    state.restartSilenceTimer(after: .milliseconds(1500)) {
+                        watchdogTask.cancel()
+                        finishWithLastPartial(orThrow: SpeechRecognitionError.timedOut)
                     }
                 }
                 if let error {
                     watchdogTask.cancel()
-                    continuation.finish(throwing: error)
-                    self.stopListening()
+                    state.cancelSilenceTimer()
+                    finishWithLastPartial(orThrow: error)
                 }
             }
 
             continuation.onTermination = { [weak self] _ in
                 watchdogTask.cancel()
+                state.cancelSilenceTimer()
                 Task { @MainActor in self?.stopListening() }
             }
         }
@@ -159,5 +186,48 @@ final class SpeechRecognitionService: NSObject {
         recognitionTask = nil
         request = nil
         AudioSessionCoordinator.deactivate()
+    }
+}
+
+/// Per-attempt bookkeeping for `recognize`: the recognizer's callback runs
+/// off the main thread, so this is lock-guarded.
+private final class RecognitionState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var finished = false
+    private var partial: String?
+    private var silenceTask: Task<Void, Never>?
+
+    var isFinished: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return finished
+    }
+
+    var lastPartial: String? {
+        get { lock.lock(); defer { lock.unlock() }; return partial }
+        set { lock.lock(); partial = newValue; lock.unlock() }
+    }
+
+    /// Returns true only for the first caller, so the stream is finished once.
+    func markFinished() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !finished else { return false }
+        finished = true
+        silenceTask?.cancel()
+        return true
+    }
+
+    func restartSilenceTimer(after delay: Duration, onSilence: @escaping @Sendable () -> Void) {
+        lock.lock(); defer { lock.unlock() }
+        silenceTask?.cancel()
+        silenceTask = Task {
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            onSilence()
+        }
+    }
+
+    func cancelSilenceTimer() {
+        lock.lock(); defer { lock.unlock() }
+        silenceTask?.cancel()
     }
 }

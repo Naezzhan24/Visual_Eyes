@@ -28,6 +28,9 @@ final class OnDeviceReaderTTSService: NSObject {
     private var onWordBoundary: ((WordRange) -> Void)?
     private var onFinished: (() -> Void)?
     private(set) var isSpeaking = false
+    /// Only this utterance's callbacks count; a stopped one must not
+    /// highlight or finish the next.
+    private var currentUtterance: AVSpeechUtterance?
 
     override init() {
         super.init()
@@ -52,10 +55,12 @@ final class OnDeviceReaderTTSService: NSObject {
             utterance.voice = voice
         }
         isSpeaking = true
+        currentUtterance = utterance
         synthesizer.speak(utterance)
     }
 
     func stop() {
+        currentUtterance = nil
         guard isSpeaking else { return }
         synthesizer.stopSpeaking(at: .immediate)
         isSpeaking = false
@@ -86,12 +91,15 @@ extension OnDeviceReaderTTSService: AVSpeechSynthesizerDelegate {
         utterance: AVSpeechUtterance
     ) {
         Task { @MainActor in
+            guard utterance === currentUtterance else { return }
             onWordBoundary?(WordRange(range: characterRange, utteranceText: utterance.speechString))
         }
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in
+            guard utterance === currentUtterance else { return }
+            currentUtterance = nil
             isSpeaking = false
             AudioSessionCoordinator.deactivate()
             onFinished?()

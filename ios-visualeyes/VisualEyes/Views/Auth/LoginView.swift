@@ -1,102 +1,201 @@
 import SwiftUI
 
+/// Mirrors `activity_login.xml`: maroon gradient, frosted glass card with the
+/// logo on a white plate, maroon-soft inputs, Login + Voice Login buttons,
+/// the voice status chip and the Register link.
 struct LoginView: View {
     @Environment(SessionStore.self) private var sessionStore
     @State private var viewModel = LoginViewModel()
     @State private var showRegister = false
+    @State private var registerByVoice = false
+    @State private var isPasswordVisible = false
+    @FocusState private var focusedField: Field?
+
+    private enum Field { case schoolId, password }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 20) {
-                    if let message = sessionStore.sessionExpiredMessage {
-                        Text(message)
-                            .font(.footnote)
-                            .foregroundStyle(.orange)
-                            .padding(.horizontal)
-                            .onAppear {
-                                // Show once, then clear.
-                                sessionStore.sessionExpiredMessage = nil
-                            }
-                    }
-
-                    VStack(spacing: 8) {
-                        Text("Welcome back")
-                            .font(.title.bold())
-                        Text("Log in with your School ID to continue.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.top, 24)
-                    .multilineTextAlignment(.center)
-
-                    VStack(spacing: 14) {
-                        HStack(spacing: 8) {
-                            TextField("School ID", text: $viewModel.schoolId)
-                                .textFieldStyle(.roundedBorder)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .accessibilityLabel("School ID")
-
-                            // Phase 2 smoke test for Tier-1 voice input —
-                            // full voice-driven login lands in Phase 5.
-                            Button {
-                                Task { await viewModel.toggleSchoolIdDictation() }
-                            } label: {
-                                Image(systemName: viewModel.isListeningForSchoolId ? "mic.fill" : "mic")
-                                    .font(.title3)
-                                    .foregroundStyle(viewModel.isListeningForSchoolId ? .red : .accentColor)
-                                    .frame(width: 44, height: 36)
-                            }
-                            .accessibilityLabel(viewModel.isListeningForSchoolId ? "Stop listening" : "Say your School ID")
-                        }
-
-                        SecureField("Password (birthdate MM-DD-YYYY)", text: $viewModel.password)
-                            .textFieldStyle(.roundedBorder)
-                            .accessibilityLabel("Password, your birthdate in month, day, year format")
-                    }
-                    .padding(.horizontal)
-
-                    if let error = viewModel.errorMessage {
-                        Text(error)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                            .padding(.horizontal)
-                    }
-
-                    Button {
-                        Task { await viewModel.login() }
-                    } label: {
-                        if viewModel.isLoading {
-                            ProgressView()
-                                .frame(maxWidth: .infinity)
-                        } else {
-                            Text("Log In")
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(!viewModel.canSubmit)
-                    .padding(.horizontal)
-
-                    Button("Don't have an account? Register") {
-                        showRegister = true
-                    }
-                    .font(.footnote)
+                VStack(spacing: 0) {
+                    card
                 }
-                .padding(.bottom, 32)
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+                .padding(.bottom, 16)
+                .frame(maxWidth: .infinity)
             }
+            .scrollBounceBehavior(.basedOnSize)
+            .pinchToZoom()
+            .maroonBackground()
+            .tripleTapToRepeat { viewModel.repeatLastInstruction() }
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(isPresented: $showRegister) {
-                RegisterView()
+                RegisterView(autoStartVoice: registerByVoice)
             }
         }
-        .task {
-            // Phase 2 smoke test for the Cloud TTS path. Doesn't repeat
-            // on re-appearance (e.g. popping back from Register) since
-            // this view's identity persists as the NavigationStack root.
-            await viewModel.speakWelcomePrompt()
+        // Greets once; popping back from Register keeps this view alive.
+        .onAppear { viewModel.screenAppeared() }
+        .onDisappear { viewModel.stopVoice() }
+        .onChange(of: viewModel.requestedVoiceRegistration) { _, requested in
+            guard requested else { return }
+            viewModel.requestedVoiceRegistration = false
+            registerByVoice = true
+            showRegister = true
         }
+    }
+
+    private var card: some View {
+        VStack(spacing: 0) {
+            Image("Logo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 230, height: 121)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.white)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(Color(hex: 0xF0DEE3), lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+                )
+                .accessibilityLabel("VisualED Logo")
+
+            Text("ACCESSIBLE\nLEARNING SYSTEM")
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .padding(.top, 4)
+                .accessibilityAddTraits(.isHeader)
+
+            Text("Sign in to continue to your accessible learning system")
+                .font(.system(size: 18))
+                .foregroundStyle(VE.subtitleOnMaroon)
+                .multilineTextAlignment(.center)
+                .padding(.top, 2)
+
+            if let message = sessionStore.sessionExpiredMessage {
+                Text(message)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0xFFE3A3))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 8)
+                    .onAppear {
+                        // Show once, then clear.
+                        sessionStore.sessionExpiredMessage = nil
+                    }
+            }
+
+            MaroonTextField(systemImage: "person.fill", isFocused: focusedField == .schoolId) {
+                TextField("", text: $viewModel.schoolId, prompt: maroonPrompt("School ID"))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($focusedField, equals: .schoolId)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = .password }
+                    .accessibilityLabel("School ID")
+            }
+            .padding(.top, 10)
+
+            MaroonTextField(systemImage: "lock.fill", isFocused: focusedField == .password) {
+                Group {
+                    if isPasswordVisible {
+                        TextField("", text: $viewModel.password, prompt: maroonPrompt("Password (Birthdate MM-DD-YYYY)"))
+                    } else {
+                        SecureField("", text: $viewModel.password, prompt: maroonPrompt("Password (Birthdate MM-DD-YYYY)"))
+                    }
+                }
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .textContentType(.password)
+                .focused($focusedField, equals: .password)
+                .submitLabel(.go)
+                .onSubmit { Task { await viewModel.loginTapped() } }
+                .accessibilityLabel("Password, your birthdate in month, day, year format")
+            } trailing: {
+                Button {
+                    isPasswordVisible.toggle()
+                } label: {
+                    Image(systemName: isPasswordVisible ? "eye" : "eye.slash")
+                        .font(.system(size: 18))
+                        .foregroundStyle(VE.textSecondary)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel(isPasswordVisible ? "Hide password" : "Show password")
+            }
+            .padding(.top, 8)
+
+            if let error = viewModel.errorMessage {
+                Text(error)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0xFFE3A3))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 8)
+            }
+
+            Button {
+                focusedField = nil
+                Task { await viewModel.loginTapped() }
+            } label: {
+                if viewModel.isLoading {
+                    ProgressView().tint(.white)
+                } else {
+                    Text("Login")
+                }
+            }
+            .buttonStyle(MaroonButtonStyle())
+            .padding(.top, 10)
+
+            Button {
+                focusedField = nil
+                viewModel.voiceLoginTapped()
+            } label: {
+                Text(viewModel.isVoiceLoginMode ? "Stop Voice Login" : "Voice Login")
+            }
+            .buttonStyle(SoftMaroonButtonStyle())
+            .padding(.top, 10)
+            .accessibilityHint("Say your School ID, then your birthdate")
+
+            HStack(spacing: 6) {
+                if viewModel.isListening {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(VE.primary)
+                        .symbolEffect(.variableColor.iterative)
+                        .frame(width: 40, height: 40)
+                }
+                Text("Voice Status: \(viewModel.voiceStatus)")
+                    .font(.system(size: 18, weight: .bold))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(VE.textPrimary)
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(10)
+            .frame(minHeight: 48)
+            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(VE.voiceChip))
+            .padding(.top, 12)
+
+            Button {
+                viewModel.stopVoice()
+                registerByVoice = false
+                showRegister = true
+            } label: {
+                Text("Don't have an account? Register")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(minHeight: 48)
+            }
+            .padding(.top, 10)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .padding(.bottom, 18)
+        .glassCard()
     }
 }
 

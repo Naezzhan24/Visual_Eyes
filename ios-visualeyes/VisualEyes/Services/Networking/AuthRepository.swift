@@ -29,7 +29,7 @@ struct AuthRepository {
         firstName: String,
         middleName: String?,
         lastName: String,
-        birthdateMMDDYYYY: String,
+        birthdateISO: String,
         yearLevel: String,
         schoolId: String,
         email: String,
@@ -39,7 +39,7 @@ struct AuthRepository {
             "p_first_name": firstName,
             "p_middle_name": middleName ?? "",
             "p_last_name": lastName,
-            "p_birthdate": birthdateMMDDYYYY,
+            "p_birthdate": birthdateISO,
             "p_year_level": yearLevel,
             "p_school_id": schoolId,
             "p_email": email
