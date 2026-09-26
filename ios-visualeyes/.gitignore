@@ -10,7 +10,7 @@ xcuserdata/
 *.xcuserstate
 *.moved-aside
 
-# Vosk model is large; drop the actual model binaries in place locally,
-# don't rely on git for the 205MB asset unless Git LFS is set up.
-VisualEyes/Resources/vosk-model-en-us-0.22-lgraph/*
-!VisualEyes/Resources/vosk-model-en-us-0.22-lgraph/.gitkeep
+
+# On-device Whisper model (~146MB) — fetched by scripts/fetch-whisper-model.sh,
+# not committed.
+WhisperModels/

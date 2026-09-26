@@ -96,6 +96,11 @@ final class SpeechRecognitionService: NSObject {
             // "allow the recognizer to fall back to server-assisted
             // recognition," not "always use the network."
             request.requiresOnDeviceRecognition = false
+            // Offline: the server path can't work, so use Apple's on-device
+            // model when this phone/language has one.
+            if !NetworkMonitor.shared.isOnline && recognizer.supportsOnDeviceRecognition {
+                request.requiresOnDeviceRecognition = true
+            }
             self.request = request
 
             do {

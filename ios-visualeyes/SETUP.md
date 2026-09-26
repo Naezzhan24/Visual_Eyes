@@ -110,20 +110,21 @@ backend ng Android app:
 - ✅ Voice Settings (4 na assistant voices), Feedback (5-step form), Help,
   Privacy Policy — lahat may "Read Aloud" kung saan applicable
 - ✅ Voice commands sa English at Tagalog (grammar table na)
-- ✅ 3-tier na speech recognition: built-in recognizer → cloud
-  (Google STT via parehong backend) → offline (**hindi pa gumagana**, see
-  below)
+- ✅ 3-tier na speech recognition: built-in recognizer (on-device kapag
+  walang internet) → cloud (Google STT via parehong backend) → offline
+  Whisper sa mismong phone (WhisperKit, kapalit ng Vosk ng Android)
 
 ### Alam kong may mga kailangan pang ayusin (huwag magulat)
 
-1. **Offline voice recognition (Vosk, Tier 3) — hindi pa gumagana.**
-   Kailangan pa ng manual setup sa Mac mo: (a) i-add ang Vosk iOS package
-   sa Xcode project, (b) i-copy ang malaking 205MB na voice model papunta
-   sa app (mayroon na nito sa Android app — `app/src/main/assets/vosk-model-en-us-0.22-lgraph`
-   — pwede mong i-AirDrop o i-copy papunta sa
-   `ios-visualeyes/VisualEyes/Resources/vosk-model-en-us-0.22-lgraph/`).
-   Hanggang hindi ito nagagawa, gagana pa rin ang boses habang may
-   internet (built-in recognizer + cloud); wala lang offline fallback.
+1. **Offline voice recognition (Whisper, Tier 3).** Para gumana offline
+   mula sa unang bukas ng app, i-download muna ang model (~146MB) sa Mac
+   bago mag-build:
+   ```
+   bash scripts/fetch-whisper-model.sh
+   ```
+   Kapag hindi ito ginawa, gagana pa rin ang app — ida-download lang ng
+   WhisperKit ang model sa unang beses na may internet ang phone. Hindi ito
+   naka-commit sa git (masyadong malaki), gaya ng Vosk model ng Android.
 2. **Yung "raw audio capture" na code (Tier 2 cloud voice recognition)**
    ang pinaka-kumplikadong bahagi na hindi ko na-verify na gumagana nang
    tama, dahil hindi ko ito ma-compile/ma-test dito sa Windows. Kung

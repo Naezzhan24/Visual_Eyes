@@ -24,6 +24,11 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: VisualEyes
+      # Bundled Whisper model (see scripts/fetch-whisper-model.sh). Optional:
+      # without it WhisperKit downloads the model on first use.
+      - path: WhisperModels
+        type: folder
+        optional: true
     dependencies:
       - package: WhisperKit
     info:
@@ -36,7 +41,12 @@ targets:
         NSSpeechRecognitionUsageDescription: "VisualED uses speech recognition to understand your voice commands and reading answers."
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.visualed.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.visualed.app.k762vrkqxf
+        # Free "Personal Team" on the Mac's Xcode, for installing on a
+        # real iPhone by cable (builds expire after 7 days). Swap in the
+        # paid team's ID for TestFlight/App Store.
+        DEVELOPMENT_TEAM: K762VRKQXF
+        CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor

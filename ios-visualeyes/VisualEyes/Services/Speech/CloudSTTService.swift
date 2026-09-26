@@ -61,7 +61,10 @@ final class CloudSTTService: NSObject {
         return try await transcribe(pcm: pcm, sampleRate: sampleRate, contextPhrases: contextPhrases)
     }
 
-    private func capturePCM(maxDuration: Duration) async throws -> (data: Data, sampleRate: Double) {
+    /// Records one utterance (same VAD as above) without sending it
+    /// anywhere, so the cascade can hand the same audio to Google and,
+    /// if that fails or there's no internet, to on-device Whisper.
+    func capturePCM(maxDuration: Duration = .seconds(8)) async throws -> (data: Data, sampleRate: Double) {
         try AudioSessionCoordinator.prepareForRecording()
         pcmBuffer = Data()
         silenceStreakMs = 0
@@ -174,7 +177,7 @@ final class CloudSTTService: NSObject {
         AudioSessionCoordinator.deactivate()
     }
 
-    private func transcribe(pcm: Data, sampleRate: Double, contextPhrases: [String]) async throws -> String {
+    func transcribe(pcm: Data, sampleRate: Double, contextPhrases: [String]) async throws -> String {
         var request = URLRequest(url: Config.googleSttFunctionURL)
         request.httpMethod = "POST"
         request.setValue(Config.supabaseAnonKey, forHTTPHeaderField: "apikey")

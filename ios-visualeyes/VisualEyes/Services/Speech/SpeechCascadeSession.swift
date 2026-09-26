@@ -4,12 +4,11 @@ import Foundation
 /// voice-driven screen calls into, regardless of which tier actually
 /// produced the result — the direct analogue of `SttCascadeSession.java`.
 ///
-/// Tier 1 (on-device/system recognizer) → Tier 2 (custom cloud capture
-/// via `google-stt`) → Tier 3 (Vosk offline — not yet functional, see
-/// `VoskSTTService`). A voice screen that exhausts Tier 1 and Tier 2 with
-/// no offline model wired up yet just times out, matching the honest
-/// current state of the cascade rather than silently pretending offline
-/// works.
+/// Tier 1 (on-device/system recognizer, forced on-device when offline) →
+/// Tier 2 (custom capture sent to `google-stt`) → Tier 3 (Whisper on the
+/// phone via WhisperKit, fed the audio Tier 2 already captured). With no
+/// internet, Tier 2's upload is skipped and the capture goes straight to
+/// Whisper.
 ///
 /// The `generation` counter is the port of `voiceSessionId` from the
 /// Android app: every `listen()`/`stop()` call bumps it, and every
@@ -29,12 +28,12 @@ final class SpeechCascadeSession {
     private(set) var generation = 0
     private let tier1: SpeechRecognitionService
     private let tier2: CloudSTTService
-    private let tier3: VoskSTTService
+    private let tier3: WhisperSTTService
 
     init(
         tier1: SpeechRecognitionService = .shared,
         tier2: CloudSTTService = .shared,
-        tier3: VoskSTTService = .shared
+        tier3: WhisperSTTService = .shared
     ) {
         self.tier1 = tier1
         self.tier2 = tier2
@@ -99,21 +98,49 @@ final class SpeechCascadeSession {
         onEvent: @escaping (Event) -> Void
     ) async {
         guard myGeneration == self.generation else { return }
+
+        let pcm: Data
+        let sampleRate: Double
         do {
-            let transcript = try await tier2.recognizeOnce(contextPhrases: contextPhrases)
-            guard myGeneration == self.generation else { return }
-            onEvent(.final(transcript))
+            (pcm, sampleRate) = try await tier2.capturePCM()
         } catch {
             guard myGeneration == self.generation else { return }
-            // Tier 3 (Vosk) plugs in right here once VoskSTTService is
-            // wired up — reusing Tier 2's captured audio rather than
-            // opening the mic a third time, matching
-            // HybridSpeechManager.reuseAudioForVosk()'s approach.
-            if let sttError = error as? CloudSTTService.CloudSTTError, case .noSpeechDetected = sttError {
+            onEvent(.error(error.localizedDescription))
+            return
+        }
+        guard myGeneration == self.generation else { return }
+        guard !pcm.isEmpty else {
+            onEvent(.timedOut)
+            return
+        }
+
+        if NetworkMonitor.shared.isOnline {
+            do {
+                let transcript = try await tier2.transcribe(pcm: pcm, sampleRate: sampleRate, contextPhrases: contextPhrases)
+                guard myGeneration == self.generation else { return }
+                onEvent(.final(transcript))
+                return
+            } catch CloudSTTService.CloudSTTError.noSpeechDetected {
+                // Google heard the audio fine and found no words.
+                guard myGeneration == self.generation else { return }
                 onEvent(.timedOut)
-            } else {
-                onEvent(.error(error.localizedDescription))
+                return
+            } catch {
+                // Network or server trouble: fall through to Whisper.
             }
+        }
+
+        // Tier 3: the same audio, transcribed on the phone.
+        do {
+            let transcript = try await tier3.transcribe(pcm: pcm, sampleRate: sampleRate)
+            guard myGeneration == self.generation else { return }
+            onEvent(.final(transcript))
+        } catch WhisperSTTService.WhisperError.noSpeech {
+            guard myGeneration == self.generation else { return }
+            onEvent(.timedOut)
+        } catch {
+            guard myGeneration == self.generation else { return }
+            onEvent(.error(error.localizedDescription))
         }
     }
 
