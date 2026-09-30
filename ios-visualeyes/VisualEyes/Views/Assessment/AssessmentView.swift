@@ -12,7 +12,6 @@ struct AssessmentView: View {
     let onFinished: (AssessmentSummary?) -> Void
 
     @State private var viewModel: AssessmentViewModel
-    @FocusState private var typingFocused: Bool
 
     init(isRetake: Bool, onFinished: @escaping (AssessmentSummary?) -> Void) {
         self.isRetake = isRetake
@@ -86,25 +85,6 @@ struct AssessmentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .frame(minHeight: 200)
 
-            if viewModel.phase == .verifyingTyped {
-                HStack(spacing: 10) {
-                    MaroonTextField(systemImage: "character.cursor.ibeam", isFocused: false) {
-                        TextField("", text: $viewModel.typedAnswer, prompt: maroonPrompt("Type the word you read"))
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .focused($typingFocused)
-                            .submitLabel(.done)
-                            .onSubmit { viewModel.submitTypedWord() }
-                            .accessibilityLabel("Type the word you read")
-                    }
-                    Button("Submit") { viewModel.submitTypedWord() }
-                        .buttonStyle(MaroonButtonStyle(height: 52, fontSize: 14))
-                        .frame(width: 96)
-                }
-                .padding(.bottom, 14)
-                .onAppear { typingFocused = true }
-            }
-
             divider.padding(.bottom, 14)
 
             Text("Voice Status")
@@ -166,7 +146,7 @@ struct AssessmentView: View {
             HStack(spacing: 12) {
                 Button("Yes") { viewModel.tapYesButton() }
                     .buttonStyle(SolidButtonStyle(kind: .blue))
-                    .accessibilityHint("Blue button. You will type the word to confirm.")
+                    .accessibilityHint("Blue button.")
                 Button("No") { viewModel.tapNoButton() }
                     .buttonStyle(SolidButtonStyle(kind: .yellow))
                     .accessibilityHint("Yellow button.")

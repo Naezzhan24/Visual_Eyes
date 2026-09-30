@@ -4,6 +4,7 @@ import SwiftUI
 /// translucent card from `activity_feedback.xml`.
 struct FeedbackView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var viewModel: FeedbackViewModel
 
     init(material: LearningMaterial) {
@@ -30,16 +31,22 @@ struct FeedbackView: View {
 
                 ProgressView(value: Double(viewModel.step.rawValue + 1), total: Double(FeedbackStep.allCases.count))
                     .tint(.white)
+                    .animation(stepAnimation, value: viewModel.step)
                     .accessibilityLabel("Step \(viewModel.step.rawValue + 1) of \(FeedbackStep.allCases.count)")
 
                 ScrollView {
+                    // Same motion as Android's FeedbackActivity.showStep: the old card fades
+                    // out, the new one slides in from the side you are heading toward.
                     stepContent
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(20)
                         .translucentCard()
+                        .id(viewModel.step)
+                        .transition(stepTransition)
                 }
                 .scrollIndicators(.hidden)
                 .scrollDismissesKeyboard(.interactively)
+                .animation(stepAnimation, value: viewModel.step)
 
                 if let error = viewModel.errorMessage {
                     Text(error)
@@ -75,6 +82,21 @@ struct FeedbackView: View {
         .onChange(of: viewModel.requestedClose) { _, close in
             if close { dismiss() }
         }
+    }
+
+    /// Android: 300ms decelerate. Skipped when the student has Reduce Motion on.
+    private var stepAnimation: Animation? {
+        reduceMotion ? nil : .easeOut(duration: 0.3)
+    }
+
+    /// Android travels 72dp with a fade. The outgoing card only fades (SwiftUI fixes its
+    /// transition before the direction is known); the incoming one slides in.
+    private var stepTransition: AnyTransition {
+        if reduceMotion { return .opacity }
+        return .asymmetric(
+            insertion: .offset(x: viewModel.stepMovesForward ? 72 : -72).combined(with: .opacity),
+            removal: .opacity
+        )
     }
 
     /// `btnVoiceFeedback` + `txtVoiceStatus`.

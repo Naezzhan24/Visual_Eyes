@@ -91,6 +91,39 @@ final class YesNoMatcherTests: XCTestCase {
         XCTAssertTrue(YesNoMatcher.isNo("hindi"))
     }
 
+    func testNaturalSentencesThatUsedToBeMissed() {
+        XCTAssertEqual(YesNoMatcher.parse("yeah I can"), .yes)
+        XCTAssertEqual(YesNoMatcher.parse("yep I can read it"), .yes)
+        XCTAssertEqual(YesNoMatcher.parse("oo kaya ko"), .yes)
+        XCTAssertEqual(YesNoMatcher.parse("nope too small"), .no)
+        XCTAssertEqual(YesNoMatcher.parse("nah I can't"), .no)
+    }
+
+    func testNegatedCanIsNo() {
+        XCTAssertEqual(YesNoMatcher.parse("I can't read it"), .no)
+        XCTAssertEqual(YesNoMatcher.parse("cannot"), .no)
+        XCTAssertEqual(YesNoMatcher.parse("I can not read it"), .no)
+        XCTAssertEqual(YesNoMatcher.parse("I don't see it"), .no)
+        XCTAssertEqual(YesNoMatcher.parse("hindi ko mabasa"), .no)
+        XCTAssertEqual(YesNoMatcher.parse("know"), .no)
+    }
+
+    func testLastDecisiveWordWins() {
+        XCTAssertEqual(YesNoMatcher.parse("no wait yes"), .yes)
+        XCTAssertEqual(YesNoMatcher.parse("yes no"), .no)
+    }
+
+    func testPartialCanIsNotDecidedEarly() {
+        XCTAssertEqual(YesNoMatcher.parse("can"), .unknown)
+        XCTAssertEqual(YesNoMatcher.parse("I can"), .unknown)
+    }
+
+    func testUnrelatedSpeechIsUnknown() {
+        for s in ["", "   ", "what is this", "yesterday", "now", "note"] {
+            XCTAssertEqual(YesNoMatcher.parse(s), .unknown, s)
+        }
+    }
+
     func testRepeatAndStop() {
         XCTAssertTrue(YesNoMatcher.isRepeat("please repeat that"))
         XCTAssertTrue(YesNoMatcher.isStop("stop"))

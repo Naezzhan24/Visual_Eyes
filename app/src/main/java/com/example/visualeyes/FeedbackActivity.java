@@ -78,6 +78,13 @@ public class FeedbackActivity extends AppCompatActivity {
     private TextView txtVoiceStatus;
     private CardView cardRatingView, cardMaterialView, cardInstructorView;
 
+    // Wizard chrome (mirrors the iOS FeedbackView): one card at a time, progress bar, Back/Next.
+    private android.widget.ProgressBar progressFeedback;
+    private Button       btnPrevStep, btnThankYouDone;
+    private View         layoutWizardTop, layoutWizardNav, layoutThankYou;
+    private int          shownStep = STEP_RATING;
+    private boolean      isSubmitting = false;
+
     private CardView     cardTextSizeView, cardSpeedView;
     private LinearLayout optionsTextSize, optionsSpeed;
     private TextView     txtTextSizePreview, txtSpeedPreview;
@@ -190,10 +197,30 @@ public class FeedbackActivity extends AppCompatActivity {
         buildOptionButtons(optionsTextSize, SIZE_LABELS,  textSizeButtons, this::selectTextSizeLevel);
         buildOptionButtons(optionsSpeed,    SPEED_LABELS, speedButtons,    this::selectSpeedLevel);
 
-        if (cardRatingView     != null) UiAnim.popIn(cardRatingView, 60);
-        if (cardMaterialView   != null) UiAnim.fadeSlideIn(cardMaterialView, 140);
-        if (cardInstructorView != null) UiAnim.rotateFadeIn(cardInstructorView, 220);
-        if (btnSubmit           != null) UiAnim.popIn(btnSubmit, 300);
+        progressFeedback = findViewById(R.id.progressFeedback);
+        btnPrevStep      = findViewById(R.id.btnPrevStep);
+        btnThankYouDone  = findViewById(R.id.btnThankYouDone);
+        layoutWizardTop  = findViewById(R.id.layoutWizardTop);
+        layoutWizardNav  = findViewById(R.id.layoutWizardNav);
+        layoutThankYou   = findViewById(R.id.layoutThankYou);
+
+        // Only the current step's card is on screen; the rest are swapped in by showStep().
+        for (int i = 0; i < TOTAL_STEPS; i++) {
+            View c = cardForStep(i);
+            if (c != null) c.setVisibility(i == STEP_RATING ? View.VISIBLE : View.GONE);
+        }
+        updateWizardChrome(false);
+        if (cardRatingView != null) UiAnim.popIn(cardRatingView, 60);
+        if (layoutWizardNav != null) UiAnim.fadeSlideIn(layoutWizardNav, 200);
+
+        if (btnPrevStep != null) {
+            UiAnim.attachPressFeedback(btnPrevStep);
+            btnPrevStep.setOnClickListener(v -> { stopVoiceFlowForManualNav(); goToStep(shownStep - 1); });
+        }
+        if (btnThankYouDone != null) {
+            UiAnim.attachPressFeedback(btnThankYouDone);
+            btnThankYouDone.setOnClickListener(v -> finishFeedbackScreen());
+        }
 
         if (btnBack           != null) UiAnim.attachPressFeedback(btnBack);
         if (btnVoiceMaterial  != null) UiAnim.attachPressFeedback(btnVoiceMaterial);
@@ -268,9 +295,17 @@ public class FeedbackActivity extends AppCompatActivity {
         });
 
         if (btnSubmit != null) btnSubmit.setOnClickListener(v -> {
-            isVoiceMode = false;
-            stopListeningSafely();
-            submitFeedback();
+            stopVoiceFlowForManualNav();
+            if (shownStep == STEP_RATING && (int) ratingBarFeedback.getRating() == 0) {
+                Toast.makeText(this, "Please select a star rating.", Toast.LENGTH_SHORT).show();
+                UiAnim.shake(ratingBarFeedback);
+                return;
+            }
+            if (shownStep == TOTAL_STEPS - 1) {
+                submitFeedback();
+            } else {
+                goToStep(shownStep + 1);
+            }
         });
 
         handler.postDelayed(() -> {
@@ -570,7 +605,7 @@ public class FeedbackActivity extends AppCompatActivity {
         isConfirmingField  = false;
         latestPartialText  = "";
 
-        scrollToView(cardForStep(currentStepIndex));
+        showStep(currentStepIndex);
         // Show the possible answers on screen too, not only in the spoken prompt.
         updateVoiceStatus("Say your " + getStepName(currentStepIndex) + ":\n" + getAnswerHint(currentStepIndex));
         lastSpokenInstruction = getPromptForStep(currentStepIndex);
@@ -1147,17 +1182,75 @@ public class FeedbackActivity extends AppCompatActivity {
         runOnUiThread(() -> { if (txtVoiceStatus != null) txtVoiceStatus.setText("Voice Status: " + msg); });
     }
 
-    private void scrollToView(View targetView) {
-        if (feedbackScrollView == null || targetView == null) return;
-        targetView.postDelayed(() -> {
-            int[] scrollLoc = new int[2];
-            int[] targetLoc = new int[2];
-            feedbackScrollView.getLocationOnScreen(scrollLoc);
-            targetView.getLocationOnScreen(targetLoc);
-            int scrollY = feedbackScrollView.getScrollY();
-            int targetY = targetLoc[1] - scrollLoc[1] + scrollY;
-            feedbackScrollView.smoothScrollTo(0, Math.max(targetY - 130, 0));
-        }, 250);
+    // ----------------------------------------------------------------------
+    // Step-by-step wizard (same as the iOS FeedbackView): one card at a time,
+    // sliding in the direction you are travelling.
+    // ----------------------------------------------------------------------
+
+    /** Next/Back tapped by hand: end the guided voice flow so the two don't fight over the step. */
+    private void stopVoiceFlowForManualNav() {
+        isVoiceMode = false;
+        isConfirmingField = false;
+        stopListeningSafely();
+    }
+
+    private void goToStep(int target) {
+        if (target < 0 || target >= TOTAL_STEPS) return;
+        showStep(target);
+    }
+
+    private void showStep(int target) {
+        runOnUiThread(() -> {
+            if (target < 0 || target >= TOTAL_STEPS || target == shownStep) return;
+            final View outgoing = cardForStep(shownStep);
+            final View incoming = cardForStep(target);
+            final int direction = target > shownStep ? 1 : -1;
+            shownStep = target;
+            updateWizardChrome(true);
+            if (incoming == null) return;
+
+            float travel = 72f * getResources().getDisplayMetrics().density;
+            if (outgoing != null) {
+                outgoing.animate().cancel();
+                outgoing.animate().alpha(0f).translationX(-direction * travel)
+                        .setDuration(180).setInterpolator(new DecelerateInterpolator())
+                        .withEndAction(() -> {
+                            outgoing.setVisibility(View.GONE);
+                            outgoing.setAlpha(1f);
+                            outgoing.setTranslationX(0f);
+                        }).start();
+            }
+            incoming.animate().cancel();
+            incoming.setVisibility(View.VISIBLE);
+            incoming.setAlpha(0f);
+            incoming.setTranslationX(direction * travel);
+            incoming.animate().alpha(1f).translationX(0f)
+                    .setStartDelay(120).setDuration(300)
+                    .setInterpolator(new DecelerateInterpolator()).start();
+            if (feedbackScrollView != null) feedbackScrollView.scrollTo(0, 0);
+        });
+    }
+
+    /** Progress bar, Back visibility and the Next / Submit label for the step being shown. */
+    private void updateWizardChrome(boolean animate) {
+        if (progressFeedback != null) {
+            progressFeedback.setProgress(shownStep + 1, animate);
+            progressFeedback.setContentDescription("Step " + (shownStep + 1) + " of " + TOTAL_STEPS);
+        }
+        if (btnPrevStep != null) btnPrevStep.setVisibility(shownStep == STEP_RATING ? View.GONE : View.VISIBLE);
+        if (btnSubmit != null && !isSubmitting) {
+            btnSubmit.setText(shownStep == TOTAL_STEPS - 1 ? "Submit Feedback" : "Next");
+        }
+    }
+
+    private void showThankYou() {
+        if (layoutWizardTop != null) layoutWizardTop.setVisibility(View.GONE);
+        if (layoutWizardNav != null) layoutWizardNav.setVisibility(View.GONE);
+        if (feedbackScrollView != null) feedbackScrollView.setVisibility(View.GONE);
+        if (layoutThankYou != null) {
+            layoutThankYou.setVisibility(View.VISIBLE);
+            UiAnim.popIn(layoutThankYou, 0);
+        }
     }
 
     private void animateClick(View view) {
@@ -1176,6 +1269,7 @@ public class FeedbackActivity extends AppCompatActivity {
 
         if (rating == 0) {
             Toast.makeText(this, "Please select a star rating.", Toast.LENGTH_SHORT).show();
+            showStep(STEP_RATING);
             UiAnim.shake(ratingBarFeedback);
             return;
         }
@@ -1227,6 +1321,7 @@ public class FeedbackActivity extends AppCompatActivity {
             return;
         }
 
+        isSubmitting = true;
         btnSubmit.setEnabled(false);
         btnSubmit.setText("Sending...");
         final String bodyStr = body.toString();
@@ -1246,38 +1341,37 @@ public class FeedbackActivity extends AppCompatActivity {
                     // couldn't be verified or the student has no access to this
                     // material — so a 200 alone doesn't mean the row was saved.
                     if (response != null && response.trim().equalsIgnoreCase("false")) {
+                        isSubmitting = false;
                         btnSubmit.setEnabled(true);
-                        btnSubmit.setText("Submit Feedback");
+                        updateWizardChrome(false);
                         Toast.makeText(this,
                                 "Could not submit feedback. Please log in again, or open this material from your materials list first.",
                                 Toast.LENGTH_LONG).show();
                         return;
                     }
 
-                    btnSubmit.setText("Sent!");
-
                     // The feedback is saved, so keep what the student previewed across the whole
-                    // app, and tell them exactly what changed.
+                    // app, and tell them exactly what changed. Like iOS, the student then sees a
+                    // Thank-you screen and closes it with Done.
                     feedbackSubmitted = true;
                     String changes = applyAdjustments();
+                    showThankYou();
                     if (changes.isEmpty()) {
-                        Toast.makeText(this, "Feedback submitted successfully!", Toast.LENGTH_LONG).show();
-                        btnSubmit.postDelayed(this::finishFeedbackScreen, 400);
+                        lastSpokenInstruction = "Thank you. Your feedback was submitted.";
                     } else {
                         Toast.makeText(this, "Feedback submitted. " + changes.trim(), Toast.LENGTH_LONG).show();
                         lastSpokenInstruction = "Thank you. " + changes + "These changes now apply across the app.";
-                        say(lastSpokenInstruction, this::finishFeedbackScreen);
-                        // Safety net so the screen can never be stuck if the voice never finishes.
-                        handler.postDelayed(this::finishFeedbackScreen, 20000);
                     }
+                    say(lastSpokenInstruction, null);
                 },
                 error -> {
                     if (SessionManager.isSessionExpiredError(error)) {
                         SessionManager.forceLogoutAndRedirect(this);
                         return;
                     }
+                    isSubmitting = false;
                     btnSubmit.setEnabled(true);
-                    btnSubmit.setText("Submit Feedback");
+                    updateWizardChrome(false);
                     String message = "Failed to submit feedback.";
                     if (error.networkResponse != null && error.networkResponse.data != null) {
                         message += "\n" + new String(error.networkResponse.data, StandardCharsets.UTF_8);

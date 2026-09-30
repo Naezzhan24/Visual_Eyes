@@ -19,7 +19,11 @@ enum FeedbackStep: Int, CaseIterable {
 final class FeedbackViewModel {
     let material: LearningMaterial
 
-    private(set) var step: FeedbackStep = .rating
+    private(set) var step: FeedbackStep = .rating {
+        didSet { stepMovesForward = step.rawValue >= oldValue.rawValue }
+    }
+    /// Which way the last step change went, so the card slides in from that side.
+    private(set) var stepMovesForward = true
     var rating: Int = 0
 
     private(set) var textSizeLevel = 0

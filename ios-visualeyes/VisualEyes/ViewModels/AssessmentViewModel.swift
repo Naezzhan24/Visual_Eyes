@@ -8,10 +8,6 @@ enum AssessmentPhase: Equatable {
     case asking
     /// Question asked; listening for a spoken yes/no, buttons enabled.
     case awaitingAnswer
-    /// Voice "yes" — the student must now read the word aloud.
-    case verifyingReadAloud
-    /// Button "Yes" — the student must now type the word.
-    case verifyingTyped
     /// Answer recorded; about to move to the next word.
     case answered
     /// "Stop" said; Start can begin again with new words.
@@ -23,10 +19,10 @@ enum AssessmentPhase: Equatable {
 
 /// Port of TextSizeTestActivity.java: the 5-word/5-size reading ladder.
 /// Scoring lives in `AssessmentScoring`; this is the state machine for
-/// start → question → answer → verification → next word → save.
+/// start → question → yes/no answer → next word → save.
 ///
 /// Every async step captures `flow` and bails out if it changed, which is
-/// the port of Android's `voiceSessionId`/`readAloudAttemptId` guards: a
+/// the port of Android's `voiceSessionId` guard: a
 /// stale TTS completion or recognizer callback from a superseded step must
 /// never act on the current one.
 @MainActor
@@ -41,7 +37,6 @@ final class AssessmentViewModel {
     private(set) var statusMessage: String
     private(set) var wasCancelled = false
     private(set) var summary: AssessmentSummary?
-    var typedAnswer = ""
     var errorMessage: String?
 
     private var readablePerSize = [Int](repeating: 0, count: AssessmentScoring.textSizes.count)
@@ -53,8 +48,6 @@ final class AssessmentViewModel {
     private var flow = 0
 
     private static let maxRetry = 3
-    private static let readAloudBudget: Duration = .seconds(15)
-    private static let readAloudAttemptTimeout: Duration = .seconds(6)
     /// Spoken whenever the student has to fall back to tapping.
     private static let buttonColorHint = "The blue button is Yes, and the yellow button is No."
 
@@ -79,15 +72,15 @@ final class AssessmentViewModel {
 
     var isRunning: Bool {
         switch phase {
-        case .asking, .awaitingAnswer, .verifyingReadAloud, .verifyingTyped, .answered: return true
+        case .asking, .awaitingAnswer, .answered: return true
         default: return false
         }
     }
 
     /// Yes/No stay tappable for the whole test, like btnYes/btnNo, except
-    /// while typing (Submit is the action then) or between words.
+    /// between words.
     var canAnswerWithButtons: Bool {
-        phase == .asking || phase == .awaitingAnswer || phase == .verifyingReadAloud
+        phase == .asking || phase == .awaitingAnswer
     }
 
     var canStart: Bool { phase == .notStarted || phase == .stopped }
@@ -178,10 +171,13 @@ final class AssessmentViewModel {
         flow += 1
         let token = flow
         retryCount = 0
-        typedAnswer = ""
         phase = .asking
         statusMessage = "Can you read this word? Say yes or no, or tap a button."
-        await speakQuestion("Can you read this word? Please say yes or no, or tap the button.", token)
+        // Full instructions on the first word only — repeating the whole
+        // sentence on all five words dragged the test out.
+        await speakQuestion(currentIndex == 0
+                            ? "Can you read this word? Please say yes or no, or tap the button."
+                            : "Next word. Can you read it?", token)
     }
 
     private func repeatCurrentQuestion() async {
@@ -250,7 +246,7 @@ final class AssessmentViewModel {
         switch action {
         case .repeatQuestion: Task { await repeatCurrentQuestion() }
         case .stop: Task { await stopByVoice() }
-        case .yes: Task { await beginReadAloudPhase() }
+        case .yes: recordAnswer(read: true)
         case .no: recordAnswer(read: false)
         }
     }
@@ -269,12 +265,10 @@ final class AssessmentViewModel {
 
     // MARK: - Buttons
 
-    /// A tapped "Yes" is verified by typing the word; a spoken one by
-    /// reading it aloud (handleManualAnswer).
     func tapYesButton() {
         guard canAnswerWithButtons else { return }
         stopListening()
-        Task { await beginTypedWordPhase() }
+        recordAnswer(read: true)
     }
 
     func tapNoButton() {
@@ -283,119 +277,15 @@ final class AssessmentViewModel {
         recordAnswer(read: false)
     }
 
-    // MARK: - Verifying a "yes"
-
-    private func beginTypedWordPhase() async {
-        flow += 1
-        let token = flow
-        phase = .verifyingTyped
-        typedAnswer = ""
-        statusMessage = "Type the word you read, then press Submit."
-        await say("Please type the word you read, then press Submit.", token)
-    }
-
-    func submitTypedWord() {
-        guard phase == .verifyingTyped, let word = currentWord else { return }
-        let typed = typedAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !typed.isEmpty else {
-            statusMessage = "Please type the word first, then press Submit."
-            return
-        }
-        recordAnswer(read: TextSimilarity.matches(candidate: typed, target: word))
-    }
-
-    private func beginReadAloudPhase() async {
-        guard currentWord != nil else { return }
-        flow += 1
-        let token = flow
-        phase = .verifyingReadAloud
-        statusMessage = "Please read the word out loud now."
-        await say("Great. Please read the word out loud now.", token)
-        guard token == flow else { return }
-
-        guard micAvailable else {
-            // Can't hear them read it — same as a failed read-aloud.
-            recordAnswer(read: false)
-            return
-        }
-        let deadline = ContinuousClock.now + Self.readAloudBudget
-        try? await Task.sleep(for: .milliseconds(400))
-        guard token == flow else { return }
-        readAloudAttempt(token: token, deadline: deadline)
-    }
-
-    /// One listening attempt of up to 6s, retried until a match or until
-    /// the 15s budget runs out (startAndroidReadAloudListening +
-    /// scheduleReadAloudRetryOrFinish).
-    private func readAloudAttempt(token: Int, deadline: ContinuousClock.Instant) {
-        guard token == flow, phase == .verifyingReadAloud, let word = currentWord else { return }
-        let now = ContinuousClock.now
-        guard now < deadline else {
-            recordAnswer(read: false)
-            return
-        }
-
-        flow += 1
-        let attempt = flow
-        isListening = true
-        statusMessage = "Listening for your reading…"
-
-        let timeout = min(deadline - now, Self.readAloudAttemptTimeout)
-        Task {
-            try? await Task.sleep(for: timeout)
-            guard attempt == self.flow, self.phase == .verifyingReadAloud else { return }
-            self.retryReadAloud(attempt: attempt, deadline: deadline)
-        }
-
-        cascade.listen(contextualStrings: [word], respectsPreferences: false) { [weak self] event in
-            guard let self, attempt == self.flow, self.phase == .verifyingReadAloud else { return }
-            switch event {
-            case .partial(let text):
-                if TextSimilarity.matches(candidate: text, target: word) {
-                    self.stopListening()
-                    self.recordAnswer(read: true)
-                } else {
-                    self.statusMessage = "Hearing: \(text)"
-                }
-            case .final(let text):
-                if TextSimilarity.matches(candidate: text, target: word) {
-                    self.stopListening()
-                    self.recordAnswer(read: true)
-                } else {
-                    self.statusMessage = "Heard: \(text)"
-                    self.retryReadAloud(attempt: attempt, deadline: deadline)
-                }
-            case .error, .timedOut:
-                self.retryReadAloud(attempt: attempt, deadline: deadline)
-            }
-        }
-    }
-
-    private func retryReadAloud(attempt: Int, deadline: ContinuousClock.Instant) {
-        stopListening()
-        guard ContinuousClock.now < deadline else {
-            recordAnswer(read: false)
-            return
-        }
-        Task {
-            try? await Task.sleep(for: .milliseconds(300))
-            guard attempt == self.flow else { return }
-            self.readAloudAttempt(token: attempt, deadline: deadline)
-        }
-    }
-
     // MARK: - Recording and moving on
 
-    /// A "yes" only counts once the word was actually read (aloud or
-    /// typed); a failed check counts as "no", exactly like Android's
-    /// recordAnswer(false) after finishReadAloud(false)/a wrong typed word.
+    /// The student's own yes/no answer is the result for this word.
     private func recordAnswer(read: Bool) {
         guard isRunning, phase != .answered else { return }
         stopListening()
         flow += 1
         let token = flow
         phase = .answered
-        typedAnswer = ""
 
         if read {
             yesCount += 1
@@ -420,7 +310,7 @@ final class AssessmentViewModel {
             return
         }
         currentIndex += 1
-        try? await Task.sleep(for: .milliseconds(900))
+        try? await Task.sleep(for: .milliseconds(600))
         guard token == flow else { return }
         await askCurrentQuestion()
     }
@@ -481,7 +371,6 @@ final class AssessmentViewModel {
         flow += 1
         let token = flow
         phase = .stopped
-        typedAnswer = ""
         statusMessage = "Assessment stopped."
         await say("Assessment stopped. You may press start again if you want to retake.", token)
     }

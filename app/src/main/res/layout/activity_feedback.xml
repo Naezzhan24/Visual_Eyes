@@ -49,10 +49,58 @@
         </LinearLayout>
     </LinearLayout>
 
+    <!-- Voice controls + step progress stay put while the cards change underneath. -->
+    <LinearLayout
+        android:id="@+id/layoutWizardTop"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="18dp"
+        android:paddingEnd="18dp">
+
+        <android.widget.Button
+            android:id="@+id/btnVoiceFeedback"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:text="Voice Feedback"
+            android:textAllCaps="false"
+            android:textColor="@color/color_primary"
+            android:textStyle="bold"
+            android:textSize="18sp"
+            android:background="@drawable/bg_btn_voice_soft"
+            android:backgroundTint="@null"
+            android:layout_marginBottom="10dp" />
+
+        <TextView
+            android:id="@+id/txtVoiceStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Voice Status: Idle"
+            android:background="@drawable/bg_voice_chip_soft"
+            android:padding="14dp"
+            android:textColor="@color/color_text_primary"
+            android:textStyle="bold"
+            android:textSize="18sp"
+            android:gravity="center"
+            android:layout_marginBottom="12dp" />
+
+        <ProgressBar
+            android:id="@+id/progressFeedback"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="8dp"
+            android:max="5"
+            android:progress="1"
+            android:progressTint="#FFFFFF"
+            android:progressBackgroundTint="#33FFFFFF"
+            android:layout_marginBottom="4dp" />
+    </LinearLayout>
+
     <ScrollView
         android:id="@+id/feedbackScrollView"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:clipToPadding="false"
         android:scrollbars="none">
 
@@ -61,32 +109,6 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:padding="18dp">
-
-            <android.widget.Button
-                android:id="@+id/btnVoiceFeedback"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:text="Voice Feedback"
-                android:textAllCaps="false"
-                android:textColor="@color/color_primary"
-                android:textStyle="bold"
-                android:textSize="18sp"
-                android:background="@drawable/bg_btn_voice_soft"
-                android:backgroundTint="@null"
-                android:layout_marginBottom="10dp" />
-
-            <TextView
-                android:id="@+id/txtVoiceStatus"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Voice Status: Idle"
-                android:background="@drawable/bg_voice_chip_soft"
-                android:padding="14dp"
-                android:textColor="@color/color_text_primary"
-                android:textStyle="bold"
-                android:textSize="18sp"
-                android:gravity="center"
-                android:layout_marginBottom="16dp" />
 
             <!-- Rating card -->
             <androidx.cardview.widget.CardView
@@ -389,22 +411,97 @@
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 
-            <android.widget.Button
-                android:id="@+id/btnSubmitFeedback"
-                android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:layout_marginBottom="24dp"
-                android:text="Submit Feedback"
-                android:textAllCaps="false"
-                android:textSize="18sp"
-                android:textStyle="bold"
-                android:gravity="center"
-                android:background="@drawable/ripple_primary_button"
-                android:backgroundTint="@null"
-                android:textColor="#FFFFFF"
-                android:elevation="4dp" />
-
         </LinearLayout>
     </ScrollView>
+
+    <!-- Back / Next (Submit on the last step), like the iOS wizard. -->
+    <LinearLayout
+        android:id="@+id/layoutWizardNav"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="18dp"
+        android:paddingEnd="18dp"
+        android:paddingBottom="18dp">
+
+        <android.widget.Button
+            android:id="@+id/btnPrevStep"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="12dp"
+            android:text="Back"
+            android:textAllCaps="false"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="@color/color_primary"
+            android:background="@drawable/bg_btn_voice_soft"
+            android:backgroundTint="@null"
+            android:visibility="gone" />
+
+        <android.widget.Button
+            android:id="@+id/btnSubmitFeedback"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_weight="1"
+            android:text="Next"
+            android:textAllCaps="false"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:background="@drawable/ripple_primary_button"
+            android:backgroundTint="@null"
+            android:textColor="#FFFFFF"
+            android:elevation="4dp" />
+    </LinearLayout>
+
+    <!-- Shown after a successful submit. -->
+    <LinearLayout
+        android:id="@+id/layoutThankYou"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="18dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:src="@android:drawable/checkbox_on_background"
+            app:tint="#FFFFFF"
+            android:contentDescription="@null" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Thank you!"
+            android:textColor="#FFFFFF"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Your feedback was submitted."
+            android:textColor="#F2DDE3"
+            android:textSize="18sp" />
+
+        <android.widget.Button
+            android:id="@+id/btnThankYouDone"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="32dp"
+            android:text="Done"
+            android:textAllCaps="false"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:background="@drawable/ripple_primary_button"
+            android:backgroundTint="@null"
+            android:textColor="#FFFFFF" />
+    </LinearLayout>
 
 </LinearLayout>
