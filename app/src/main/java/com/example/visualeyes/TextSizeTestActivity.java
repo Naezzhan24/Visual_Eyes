@@ -69,24 +69,24 @@ public class TextSizeTestActivity extends AppCompatActivity {
     private boolean isTypingWord             = false;
 
     private final String[][] wordTiers = {
-            {"cat", "dog", "sun"},
-            {"apple", "chair", "green"},
-            {"garden", "pencil", "window"},
-            {"bicycle", "hospital", "elephant"},
-            {"beautiful", "important", "wonderful"},
+            {"beautiful", "important", "wonderful"},   // 42sp (una)
+            {"bicycle", "hospital", "elephant"},       // 36sp
+            {"garden", "pencil", "window"},            // 30sp
+            {"apple", "chair", "green"},               // 24sp
+            {"cat", "dog", "sun"},                     // 18sp (huli)
     };
     private final String[][] retakeWordTiers = {
-            {"cup", "pen", "red"},
-            {"table", "paper", "happy"},
-            {"teacher", "student", "library"},
-            {"computer", "notebook", "mountain"},
-            {"chocolate", "adventure", "celebration"},
+            {"chocolate", "adventure", "celebration"}, // 42sp (una)
+            {"computer", "notebook", "mountain"},      // 36sp
+            {"teacher", "student", "library"},         // 30sp
+            {"table", "paper", "happy"},               // 24sp
+            {"cup", "pen", "red"},                     // 18sp (huli)
     };
+
+    private final float[] textSizes = {42f, 36f, 30f, 24f, 18f};
     private String[][] activeWordTiers;
     private String[]   assignedWords;
     private final Random wordRandom = new Random();
-
-    final float[] textSizes = {42f, 36f, 30f, 24f, 18f};
 
     private int currentSizeIndex = 0;
     private int yesCount  = 0;
@@ -255,7 +255,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
         java.util.Arrays.fill(wordRead, false);
 
         showCurrentItem(true);
-        setStatus("Assessment is startingÃ¢Â€Â¦");
+        setStatus("Assessment is starting");
         stopListeningSafely();
 
         handler.postDelayed(() -> {
@@ -284,7 +284,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
 
         waitingForAnswer = false;
         stopListeningSafely();
-        setStatus("Repeating questionÃ¢Â€Â¦");
+        setStatus("Repeating question");
         speakQuestion("Repeating. Can you read this word? Please say yes or no.");
     }
 
@@ -443,7 +443,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
         try {
             isRecognizerListening = true;
             speechRecognizer.startListening(speechIntent);
-            setStatus("Listening for your readingÃ¢Â€Â¦");
+            setStatus("Listening for your reading");
         } catch (Exception e) {
             isRecognizerListening = false;
             Log.e("STT", "read-aloud fallback startListening failed: " + e.getMessage());
@@ -456,7 +456,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
         handler.postDelayed(() -> {
             if (attemptId != readAloudAttemptId) return;
             if (isReadingWord && isRecognizerListening) {
-                Log.e("STT", "Read-aloud recognizer silent hang Ã¢Â€Â” forcing retry.");
+                Log.e("STT", "Read-aloud recognizer silent hang” forcing retry.");
                 isRecognizerListening = false;
                 try { if (speechRecognizer != null) speechRecognizer.cancel(); } catch (Exception ignored) {}
                 scheduleReadAloudRetryOrFinish();
@@ -746,7 +746,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
             isRecognizerListening = true;
             micReconnectAttempts = 0;
             if (isReadingWord) {
-                setStatus("Listening for your readingÃ¢Â€Â¦");
+                setStatus("Listening for your reading");
             } else {
                 waitingForAnswer = true;
                 setStatus("ListeningÃ¢Â€Â¦ Say yes or no, or tap a button.");
@@ -755,7 +755,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
 
         @Override public void onBeginningOfSpeech() {
             if (mySession != voiceSessionId) return;
-            setStatus("Hearing your voiceÃ¢Â€Â¦");
+            setStatus("Hearing your voice");
         }
         @Override public void onRmsChanged(float r)  {}
         @Override public void onBufferReceived(byte[] b) {}
@@ -765,7 +765,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
             if (mySession != voiceSessionId) return;
             isRecognizerListening = false;
             if (!answerHandled && !testFinished) {
-                setStatus(isReadingWord ? "Processing your readingÃ¢Â€Â¦"
+                setStatus(isReadingWord ? "Processing your reading"
                         : "ProcessingÃ¢Â€Â¦ You may also tap Yes or No.");
             }
         }
@@ -971,11 +971,11 @@ public class TextSizeTestActivity extends AppCompatActivity {
                 .putInt("noCount", noCount)
                 .putString("recommendedTextSize", size)
                 .putString("impairmentLevel", level)
-                .putInt("size1Readable", readablePerSize[0])
-                .putInt("size2Readable", readablePerSize[1])
-                .putInt("size3Readable", readablePerSize[2])
-                .putInt("size4Readable", readablePerSize[3])
-                .putInt("size5Readable", readablePerSize[4])
+                .putInt("size1Readable", readablePerSize[4])   // 18sp
+                .putInt("size2Readable", readablePerSize[3])   // 24sp
+                .putInt("size3Readable", readablePerSize[2])   // 30sp
+                .putInt("size4Readable", readablePerSize[1])   // 36sp
+                .putInt("size5Readable", readablePerSize[0])   // 42sp
                 .putBoolean("profile_completed", true)
                 .putBoolean("lastAssessmentWasRetake", isRetakeAssessment)
                 .apply();
