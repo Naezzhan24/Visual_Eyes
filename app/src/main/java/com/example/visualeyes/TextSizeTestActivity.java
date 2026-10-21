@@ -86,7 +86,7 @@ public class TextSizeTestActivity extends AppCompatActivity {
     private String[]   assignedWords;
     private final Random wordRandom = new Random();
 
-    private final float[] textSizes = {18f, 24f, 30f, 36f, 42f};
+    final float[] textSizes = {42f, 36f, 30f, 24f, 18f};
 
     private int currentSizeIndex = 0;
     private int yesCount  = 0;
@@ -949,16 +949,13 @@ public class TextSizeTestActivity extends AppCompatActivity {
     }
 
     private String getRecommendedTextSize() {
-        int best = 0;
-        for (int i = 1; i < readablePerSize.length; i++) {
-            if (readablePerSize[i] > readablePerSize[best]) best = i;
+        // textSizes is largest -> smallest, so scan from the end (smallest)
+        // and pick the smallest size the student could actually read.
+        for (int i = textSizes.length - 1; i >= 0; i--) {
+            if (readablePerSize[i] > 0) return ((int) textSizes[i]) + "sp";
         }
-        float size = textSizes[best];
-        if (size == 18f) return "18sp";
-        if (size == 24f) return "24sp";
-        if (size == 30f) return "30sp";
-        if (size == 36f) return "36sp";
-        return "42sp";
+        // Couldn't read any word: recommend the largest size.
+        return ((int) textSizes[0]) + "sp";
     }
 
     private String getImpairmentLevel() {
